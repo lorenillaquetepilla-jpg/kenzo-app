@@ -31,7 +31,7 @@
 
 <dialog id="dlg"><form id="dlgForm" method="dialog">
   <h4 id="dlgTitle">Sesión</h4>
-  <label>Día<select id="fDay"></select></label>
+  <label id="fDayWrap">Día de la semana<select id="fDay"></select></label>
   <div class="row2">
     <label>Empieza<input type="time" id="fStart" required step="900"></label>
     <label>Termina<input type="time" id="fEnd" required step="900"></label>
@@ -45,6 +45,14 @@
     <button type="submit" class="btn primary">Guardar</button>
   </div>
 </form></dialog>
+<dialog id="dayDlg"><div class="ddbox">
+  <h4 id="ddTitle">Día</h4>
+  <button type="button" class="btn primary" id="ddAdd">+ Añadir sesión</button>
+  <button type="button" class="btn" id="ddFree">Dejar el día libre</button>
+  <button type="button" class="btn" id="ddReset">Volver a la semana tipo</button>
+  <div class="ddrep"><label>Repetir esta semana entera hasta la semana del<select id="ddUntil"></select></label><button type="button" class="btn" id="ddRepeat">Repetir</button></div>
+  <div class="dlgbtns"><button type="button" class="btn" id="ddClose">Cerrar</button></div>
+</div></dialog>
 <div class="toast" id="toast" hidden></div>
 <script type="module" src="app.js"></script>
 </body>

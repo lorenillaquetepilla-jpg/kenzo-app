@@ -198,3 +198,57 @@ html,body{min-height:100%}
 .members{display:grid;gap:8px}
 .mrow{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)}
 .demo{background:color-mix(in srgb,var(--warn) 18%,var(--surface));border:1px solid var(--warn);color:var(--ink)}
+
+/* ---- monthly course calendar ---- */
+.cal{padding:18px}
+.planfor{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:color-mix(in srgb,var(--seal) 10%,var(--surface));border:1px solid color-mix(in srgb,var(--seal) 45%,transparent);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px}
+.monthbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.panel h3.mtitle{margin:0;text-align:center;font-family:var(--f-display);font-weight:600;font-size:clamp(24px,4.4vw,40px);letter-spacing:.2em;text-transform:uppercase;color:var(--ink);line-height:1.1}
+.mtitle span{display:block;margin-top:6px;font-family:var(--f-body);font-size:12px;font-weight:700;letter-spacing:.24em;color:var(--accent)}
+.mtitle span::before{content:"";display:inline-block;width:9px;height:9px;background:var(--seal);margin-right:8px;vertical-align:1px}
+.mnav{flex:none;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-size:22px;line-height:1;color:var(--ink)}
+.mnav:disabled{opacity:.3;cursor:default}
+.mchips{display:flex;gap:4px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px}
+.mchips button:first-child{margin-left:auto}.mchips button:last-child{margin-right:auto}
+.mchips button{border:1px solid var(--line);background:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
+.mchips button[aria-pressed="true"]{background:var(--band);border-color:var(--band);color:var(--band-fg)}
+.mgrid{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.mhead{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));background:var(--band);color:var(--band-fg)}
+.mhead span{padding:8px 6px;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;text-align:center}
+.mdays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--line)}
+.mday{background:var(--surface);min-height:112px;padding:6px;display:flex;flex-direction:column;gap:4px;min-width:0;position:relative}
+.mday.wkend{background:color-mix(in srgb,var(--paper) 70%,var(--surface))}
+.mday.blank{background:var(--paper)}
+.mday.today{box-shadow:inset 0 0 0 2px var(--seal)}
+.mday.changed::after{content:"";position:absolute;top:8px;right:8px;width:7px;height:7px;border-radius:50%;background:var(--seal)}
+.dnum{display:flex;align-items:baseline;gap:6px;background:none;border:0;padding:0 0 2px;text-align:left;color:var(--ink)}
+.dnum b{font-family:var(--f-display);font-size:18px;font-weight:600}
+.dnum small{font-family:var(--f-mono);font-size:10px;color:var(--muted)}
+.dnum .wdl{display:none;font-size:12px;color:var(--muted);text-transform:capitalize}
+button.dnum:hover b{color:var(--seal)}
+.mday.today .dnum b{color:var(--seal)}
+.pill{display:block;border:0;text-align:left;background:color-mix(in srgb,var(--k) 12%,var(--surface));border-left:3px solid var(--k);border-radius:4px;padding:2px 5px;font-size:11.5px;line-height:1.3;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+.pill .t{font-family:var(--f-mono);font-size:10.5px;color:var(--muted)}
+button.pill:hover{background:color-mix(in srgb,var(--k) 22%,var(--surface))}
+.pill.done{background:color-mix(in srgb,var(--ok) 16%,var(--surface))}
+.pill.no{background:color-mix(in srgb,var(--bad) 14%,var(--surface));text-decoration:line-through}
+.mday .rest{font-size:11px;color:var(--muted);font-style:italic}
+.dadd{margin-top:auto;align-self:flex-start;border:1px dashed var(--line);background:none;border-radius:6px;width:26px;height:22px;line-height:1;color:var(--muted);opacity:0}
+.mday:hover .dadd,.dadd:focus-visible{opacity:1}
+@media (hover:none){.dadd{opacity:1}}
+.kinds .chgkey::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--seal);margin-right:6px}
+.calfoot{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;margin-top:12px}
+.calfoot p{margin:0;font-size:13px;color:var(--muted)}
+@media (max-width:760px){
+  .mhead{display:none}
+  .mdays{grid-template-columns:1fr}
+  .mday{min-height:0;padding:8px 10px}
+  .mday.blank{display:none}
+  .dnum .wdl{display:inline}
+  .pill{white-space:normal;font-size:13px;padding:4px 8px}
+  .dadd{opacity:1;position:absolute;top:6px;right:24px}
+}
+.ddbox{padding:18px;display:grid;gap:10px}
+.ddbox h4{text-transform:capitalize}
+.ddrep{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px;margin-top:4px}
+@media (max-width:520px){.panel h3.mtitle{letter-spacing:.08em;font-size:26px}.mtitle span{letter-spacing:.12em}.cal{padding:12px}}

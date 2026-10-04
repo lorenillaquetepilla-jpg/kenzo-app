@@ -9,8 +9,8 @@ const DAYS = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
 const DAYS_L = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
 const SECTIONS = [
   {id:"panda",name:"Panda",sub:"Grupo de iniciados",groups:[{id:"ini",name:"Iniciados"}]},
-  {id:"koi",name:"Koi",sub:"Alumnos antiguos · grupo avanzado",groups:[{id:"av",name:"Avanzados"}]},
-  {id:"bonsai",name:"Bonsai",sub:"Equipo con dos grupos",groups:[{id:"av",name:"Avanzados"},{id:"ini",name:"Iniciados (nuevos)"}]}
+  {id:"koi",name:"Dragón",sub:"Alumnos antiguos · grupo avanzado",groups:[{id:"av",name:"Avanzados"}]},
+  {id:"bonsai",name:"Tora",sub:"Equipo con dos grupos",groups:[{id:"av",name:"Avanzados"},{id:"ini",name:"Iniciados (nuevos)"}]}
 ];
 const TIERS = [
   {id:"2",label:"2 h",min:2,max:2},
@@ -29,6 +29,9 @@ const SCORED = new Set(["test","examen"]);
 const kindOf = s => KINDS.find(k => k.id === s.k) || KINDS[0];
 const SEC_COLOR = {panda:"var(--panda)",koi:"var(--koi)",bonsai:"var(--bonsai)"};
 const HISTORY_WEEKS = 8;
+// The course runs month by month from November 2026 to October 2027.
+const MONTHS = Array.from({length:12}, (_,i) => ({y:2026+Math.floor((10+i)/12), m:(10+i)%12}));
+const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -92,6 +95,13 @@ function template(tierId) {
   out.push({id:"t5_0",d:5,s:"10:00",e:tierId==="2"?"12:00":"13:00",t:"Simulacro semanal",k:"examen"});
   return out;
 }
+function offFor(date) { const m=new Date(date); m.setHours(12,0,0,0); m.setDate(m.getDate()-((m.getDay()+6)%7)); return Math.round((m-mondayFor(0))/(7*864e5)); }
+const courseEndOff = () => offFor(new Date(2027,9,31));
+function monthIdxNow() { const d=new Date(); const i=MONTHS.findIndex(x=>x.y===d.getFullYear()&&x.m===d.getMonth()); return i<0?0:i; }
+const wdOf = d => (d.getDay()+6)%7;
+// A day's plan: the student's own change, else the group's change for that date, else the group's typical week.
+function calDay(id, key, wd) { const o = S.calendars[id]?.days?.[key]; return o != null ? o : getCal(id).sessions.filter(s=>s.d===wd); }
+function stuDay(stu, key, wd) { const o = stu.days?.[key]; return o != null ? o : calDay(stu.calId, key, wd); }
 function getCal(id) {
   const c = S.calendars[id];
   if (c && Array.isArray(c.sessions)) return {sessions:c.sessions,isTemplate:false};
@@ -102,7 +112,7 @@ function dayHours(sessions) { const h=[0,0,0,0,0,0,0]; for (const s of sessions)
 
 /* ---------- state ---------- */
 const S = {user:null, member:undefined, setupExists:null, calendars:{}, students:{}, weeks:{}, extras:{}, notes:{}, members:{}, invites:{}, me:null};
-const ui = {tab:"panda", group:{panda:"ini",koi:"av",bonsai:"av"}, tier:{}, weekOff:0, open:null, confirmDel:null, authMode:"in", authMsg:"", authErr:""};
+const ui = {tab:"panda", group:{panda:"ini",koi:"av",bonsai:"av"}, tier:{}, weekOff:0, open:null, confirmDel:null, authMode:"in", authMsg:"", authErr:"", month:monthIdxNow(), mode:"month", planFor:null, view:"week"};
 try { const s=JSON.parse(localStorage.getItem("kenzo-ui")||"{}"); if (s.tab) ui.tab=s.tab; if (s.group) Object.assign(ui.group,s.group); if (s.tier) ui.tier=s.tier; } catch(e) {}
 const saveUi = () => { try { localStorage.setItem("kenzo-ui",JSON.stringify({tab:ui.tab,group:ui.group,tier:ui.tier})); } catch(e) {} };
 
@@ -145,7 +155,6 @@ function subscribeAdmin() {
   subs.push(be.watchQuery("calendars", [], o => { S.calendars=o; render(); }, onErr));
   subs.push(be.watchQuery("students", [], o => { S.students=o; render(); }, onErr));
   subs.push(be.watchQuery("weeks", [["week",">=",minWeek]], o => { S.weeks=o; render(); }, onErr));
-  subs.push(be.watchQuery("extras", [["week",">=",minWeek]], o => { S.extras=o; render(); }, onErr));
   subs.push(be.watchQuery("notes", [["week",">=",minWeek]], o => { S.notes=o; render(); }, onErr));
   subs.push(be.watchQuery("members", [], o => { S.members=o; render(); }, onErr));
   subs.push(be.watchQuery("invites", [], o => { S.invites=o; render(); }, onErr));
@@ -164,7 +173,6 @@ function subscribeStudent(sid) {
     render();
   }, onErr));
   subs.push(be.watchQuery("weeks", [["studentId","==",sid]], o => { S.weeks=o; render(); }, onErr));
-  subs.push(be.watchQuery("extras", [["studentId","==",sid]], o => { S.extras=o; render(); }, onErr));
 }
 
 async function join(code) {
@@ -184,10 +192,10 @@ async function join(code) {
 
 /* ---------- stats ---------- */
 function tasksFor(stu, off) {
-  const wk = weekKey(off);
-  const cal = getCal(stu.calId).sessions.map(s => ({...s, src:"cal"}));
-  const ex = (S.extras[`${stu.id}__${wk}`]?.tasks || []).map(s => ({...s, src:"extra"}));
-  return [...cal, ...ex].sort((a,b) => a.d-b.d || mins(a.s)-mins(b.s));
+  const out = [];
+  for (let d=0; d<7; d++) { const key = ymd(dateOf(off,d)); const own = stu.days?.[key] != null;
+    for (const s of stuDay(stu, key, d)) out.push({...s, d, src: own ? "own" : "cal"}); }
+  return out.sort((a,b) => a.d-b.d || mins(a.s)-mins(b.s));
 }
 function stats(stu, off) {
   const wk = weekKey(off);
@@ -277,6 +285,31 @@ function joinHtml() {
 function studentHtml() {
   const stu = S.me;
   if (!stu) return `<div class="empty">Tu ficha de alumno ya no existe. Habla con la academia.</div>`;
+  const seg = `<div class="seg" role="group" aria-label="Vista" style="margin-bottom:16px"><button data-view="week" aria-pressed="${ui.view!=="year"}">Mi semana</button><button data-view="year" aria-pressed="${ui.view==="year"}">Mi calendario</button></div>`;
+  if (ui.view === "year") return seg + studentMonthHtml(stu);
+  return seg + studentWeekHtml(stu);
+}
+function studentMonthHtml(stu) {
+  const M = MONTHS[ui.month] || MONTHS[0];
+  const first = new Date(M.y, M.m, 1, 12); const nDays = new Date(M.y, M.m+1, 0).getDate(); const today = ymd(new Date());
+  let h = `<section class="panel cal"><div class="monthbar"><button class="mnav" data-mo="-1" aria-label="Mes anterior" ${ui.month<=0?"disabled":""}>‹</button>
+    <h3 class="mtitle">${MONTH_NAMES[M.m]} ${M.y}<span>${esc(calLabel(stu.calId).text)}</span></h3>
+    <button class="mnav" data-mo="1" aria-label="Mes siguiente" ${ui.month>=MONTHS.length-1?"disabled":""}>›</button></div>
+    <div class="mchips" role="group" aria-label="Meses del curso">${MONTHS.map((x,i)=>`<button data-month="${i}" aria-pressed="${i===ui.month}">${MONTH_NAMES[x.m].slice(0,3)}</button>`).join("")}</div>
+    <div class="mgrid"><div class="mhead">${DAYS_L.map(d=>`<span>${d}</span>`).join("")}</div><div class="mdays">`;
+  for (let i=0; i<wdOf(first); i++) h += `<div class="mday blank" aria-hidden="true"></div>`;
+  for (let n=1; n<=nDays; n++) {
+    const date = new Date(M.y, M.m, n, 12); const key = ymd(date); const wd = wdOf(date);
+    const list = stuDay(stu, key, wd).slice().sort((a,b)=>mins(a.s)-mins(b.s));
+    const checks = S.weeks[`${stu.id}__${isoWeek(date)}`]?.checks || {};
+    h += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""}"><span class="dnum"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span></span>
+      ${list.map(t=>{ const st = checks[t.id]?.st; return `<span class="pill ${st||""}" style="--k:${kindOf(t).c}">${st==="done"?"✓ ":st==="no"?"✗ ":""}<span class="t">${t.s}</span> ${esc(t.t||kindOf(t).name)}</span>`; }).join("")}
+      ${list.length ? "" : `<span class="rest">Libre</span>`}</div>`;
+  }
+  return h + `</div></div><div class="kinds" style="margin:12px 0 0">${KINDS.map(k=>`<span style="--c:${k.c}">${k.name}</span>`).join("")}</div>
+    <p class="hint" style="margin:10px 0 0;font-size:13px;color:var(--muted)">Las tareas se marcan en «Mi semana».</p></section>`;
+}
+function studentWeekHtml(stu) {
   const off = ui.weekOff; const st = stats(stu, off); const lab = calLabel(stu.calId);
   const first = (stu.name || "").split(" ")[0];
   let h = `<div class="me-head"><div><h2>Hola, ${esc(first)}</h2><div class="sub">${esc(lab.text)} al día</div></div>
@@ -300,7 +333,7 @@ function taskCard(stu, off, t, c) {
   const k = kindOf(t); const due = isDue(off, t.d);
   const key = `${stu.id}|${off}|${t.id}`;
   return `<div class="task ${due?"":"future"}" style="--k:${k.c}">
-    <div class="row"><div class="info"><span class="t">${t.s}–${t.e}</span><span class="k">${k.name}</span><span class="s">${esc(t.t || k.name)}</span>${t.src==="extra"?`<span class="x">Tarea extra de Paula</span>`:""}</div>
+    <div class="row"><div class="info"><span class="t">${t.s}–${t.e}</span><span class="k">${k.name}</span><span class="s">${esc(t.t || k.name)}</span></div>
     <div class="checks"><button data-check="${key}" data-st="done" data-on="${c.st==="done"?"done":""}" ${due?"":"disabled"}>✓ Hecha</button><button data-check="${key}" data-st="no" data-on="${c.st==="no"?"no":""}" ${due?"":"disabled"}>✗ No</button></div></div>
     ${c.st==="no" ? `<div class="extra"><input type="text" data-why="${key}" value="${esc(c.why||"")}" maxlength="120" placeholder="¿Qué ha pasado? (opcional)" aria-label="Motivo"></div>` : ""}
     ${c.st==="done" && SCORED.has(k.id) ? `<div class="extra"><label style="font-size:13px;color:var(--muted)">Nota</label><input class="score" type="number" inputmode="decimal" min="0" max="10" step="0.1" data-score="${key}" value="${c.score ?? ""}" placeholder="0–10" aria-label="Nota"></div>` : ""}
@@ -308,7 +341,7 @@ function taskCard(stu, off, t, c) {
   </div>`;
 }
 function weekNav(maxAhead) {
-  return `<div class="wknav"><button data-wk="-1" aria-label="Semana anterior" ${ui.weekOff<=-HISTORY_WEEKS?"disabled":""}>‹</button><span>${weekLabel(ui.weekOff)}</span><button data-wk="1" aria-label="Semana siguiente" ${ui.weekOff>=maxAhead?"disabled":""}>›</button></div>`;
+  return `<div class="wknav"><button data-wk="-1" aria-label="Semana anterior" ${ui.weekOff<=-HISTORY_WEEKS?"disabled":""}>‹</button><span>${weekLabel(ui.weekOff)}</span><button data-wk="1" aria-label="Semana siguiente" ${ui.weekOff>=Math.max(maxAhead,courseEndOff())?"disabled":""}>›</button></div>`;
 }
 
 /* ---- admin: section ---- */
@@ -316,31 +349,63 @@ function currentCalId() { const Sx=SECTIONS.find(s=>s.id===ui.tab); const g=ui.g
 function sectionHtml() {
   const Sx = SECTIONS.find(s=>s.id===ui.tab) || SECTIONS[0]; const g = ui.group[Sx.id];
   const tier = ui.tier[`${Sx.id}-${g}`] || "2"; const id = calId(Sx.id,g,tier); const T = TIERS.find(t=>t.id===tier);
-  const {sessions,isTemplate} = getCal(id); const h = dayHours(sessions); const week = h.reduce((a,b)=>a+b,0);
+  const {sessions,isTemplate} = getCal(id);
   let html = `<div class="sechead"><div><h2>${Sx.name}</h2><div class="sub">${Sx.sub}</div></div>`;
   if (Sx.groups.length>1) html += `<div class="seg" role="group" aria-label="Grupo">${Sx.groups.map(G=>`<button data-group="${G.id}" aria-pressed="${G.id===g}">${G.name}</button>`).join("")}</div>`;
   html += `</div><div class="tiers" role="group" aria-label="Horas de estudio al día">${TIERS.map(t=>{
     const n = Object.values(S.students).filter(s=>s.calId===calId(Sx.id,g,t.id)).length;
     return `<button data-tier="${t.id}" aria-pressed="${t.id===tier}"><b>${t.label}</b><span>al día · ${n} ${n===1?"alumno":"alumnos"}</span></button>`}).join("")}</div>`;
-  html += `<section class="panel"><div class="phead"><h3>Calendario semanal · ${esc(T.label)} al día</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    ${isTemplate?`<span class="chip">Plantilla sugerida</span>`:""}<span class="chip">${hrs(week)} h / semana</span></div></div><div class="week">`;
-  for (let d=0; d<7; d++) {
-    const list = sessions.filter(s=>s.d===d).sort((a,b)=>mins(a.s)-mins(b.s));
-    const cls = h[d]>T.max ? "over" : (h[d]>0 && h[d]<T.min) ? "under" : "";
-    html += `<div class="day"><header><b>${DAYS_L[d]}</b><small class="${cls}" title="${cls==="over"?"Por encima del plan":cls==="under"?"Por debajo del plan":""}">${h[d]?hrs(h[d])+" h":"—"}</small></header>`;
-    html += list.map(s=>`<button class="sess" style="--k:${kindOf(s).c}" data-sess="${s.id}"><span class="t">${s.s}–${s.e}<span class="k">${kindOf(s).name}</span></span><span class="s">${esc(s.t||kindOf(s).name)}</span></button>`).join("");
-    if (!list.length) html += `<div class="rest">Descanso</div>`;
-    html += `<button class="add" data-add="${d}">+ Añadir</button></div>`;
-  }
-  const byK = {}; for (const s of sessions) { const k=kindOf(s).id; byK[k]=(byK[k]||0)+dur(s); }
-  html += `</div><div class="kinds" style="margin:12px 0 0">${KINDS.map(k=>`<span style="--c:${k.c}">${k.name}${byK[k.id]?` · ${hrs(byK[k.id])} h`:""}</span>`).join("")}</div>
-    <p style="margin:10px 0 0;font-size:12px;color:var(--muted)">Los cambios se aplican a todos los alumnos de este calendario. Lo que ya hayan marcado se mantiene.</p></section>`;
+  html += ui.mode === "base" && !ui.planFor ? baseWeekHtml(id, T, sessions, isTemplate) : monthHtml(id, Sx, T);
 
   const studs = Object.values(S.students).filter(s=>s.calId===id).sort((a,b)=>a.name.localeCompare(b.name,"es"));
   html += `<section class="panel"><div class="phead"><h3>Alumnos de este calendario</h3>${weekNav(1)}</div>`;
   if (!studs.length) html += `<div class="empty">Todavía no hay alumnos en este calendario. Añade el primero aquí abajo y te daré su código de acceso.</div>`;
   html += `<div class="students">` + studs.map(stu => adminStudentCard(stu)).join("") + `</div>`;
   html += `<form class="addrow" id="addStu"><input id="newStu" type="text" placeholder="Nombre y apellido del alumno" maxlength="60" aria-label="Nombre del alumno"><button class="btn primary" type="submit">Añadir alumno</button></form></section>`;
+  return html;
+}
+function baseWeekHtml(id, T, sessions, isTemplate) {
+  const h = dayHours(sessions); const week = h.reduce((a,b)=>a+b,0);
+  let html = `<section class="panel"><div class="phead"><h3>Semana tipo · ${esc(T.label)} al día</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    ${isTemplate?`<span class="chip">Plantilla sugerida</span>`:""}<span class="chip">${hrs(week)} h / semana</span><button class="btn" data-mode="month">Volver al calendario</button></div></div>
+    <p class="hint" style="margin:0 0 12px;font-size:13px;color:var(--muted)">La semana tipo rellena todos los días del curso que no hayas cambiado a mano.</p><div class="week">`;
+  for (let d=0; d<7; d++) {
+    const list = sessions.filter(s=>s.d===d).sort((a,b)=>mins(a.s)-mins(b.s));
+    const cls = h[d]>T.max ? "over" : (h[d]>0 && h[d]<T.min) ? "under" : "";
+    html += `<div class="day"><header><b>${DAYS_L[d]}</b><small class="${cls}">${h[d]?hrs(h[d])+" h":"—"}</small></header>`;
+    html += list.map(s=>`<button class="sess" style="--k:${kindOf(s).c}" data-sess="${s.id}"><span class="t">${s.s}–${s.e}<span class="k">${kindOf(s).name}</span></span><span class="s">${esc(s.t||kindOf(s).name)}</span></button>`).join("");
+    if (!list.length) html += `<div class="rest">Descanso</div>`;
+    html += `<button class="add" data-add="${d}">+ Añadir</button></div>`;
+  }
+  return html + `</div></section>`;
+}
+function monthHtml(id, Sx, T) {
+  const stu = ui.planFor ? S.students[ui.planFor] : null;
+  const M = MONTHS[ui.month] || MONTHS[0];
+  const first = new Date(M.y, M.m, 1, 12); const nDays = new Date(M.y, M.m+1, 0).getDate();
+  const today = ymd(new Date()); const lab = calLabel(id);
+  let html = `<section class="panel cal">`;
+  if (stu) html += `<div class="planfor"><span>Estás planificando solo para <b>${esc(stu.name)}</b>. Lo que cambies aquí no afecta al resto del grupo.</span><button class="btn" data-planexit="1">Volver al calendario del grupo</button></div>`;
+  html += `<div class="monthbar"><button class="mnav" data-mo="-1" aria-label="Mes anterior" ${ui.month<=0?"disabled":""}>‹</button>
+    <h3 class="mtitle">${MONTH_NAMES[M.m]} ${M.y}<span>${esc(stu ? stu.name : `${Sx.name} · ${lab.G.name.replace(/ \(.*\)/,"")}`)} · ${esc(T.label)}</span></h3>
+    <button class="mnav" data-mo="1" aria-label="Mes siguiente" ${ui.month>=MONTHS.length-1?"disabled":""}>›</button></div>
+    <div class="mchips" role="group" aria-label="Meses del curso">${MONTHS.map((x,i)=>`<button data-month="${i}" aria-pressed="${i===ui.month}">${MONTH_NAMES[x.m].slice(0,3)}</button>`).join("")}</div>
+    <div class="mgrid"><div class="mhead">${DAYS_L.map(d=>`<span>${d}</span>`).join("")}</div><div class="mdays">`;
+  for (let i=0; i<wdOf(first); i++) html += `<div class="mday blank" aria-hidden="true"></div>`;
+  for (let n=1; n<=nDays; n++) {
+    const date = new Date(M.y, M.m, n, 12); const key = ymd(date); const wd = wdOf(date);
+    const list = (stu ? stuDay(stu, key, wd) : calDay(id, key, wd)).slice().sort((a,b)=>mins(a.s)-mins(b.s));
+    const changed = stu ? stu.days?.[key] != null : S.calendars[id]?.days?.[key] != null;
+    const tot = list.reduce((a,s)=>a+dur(s),0);
+    html += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""} ${changed?"changed":""}">
+      <button class="dnum" data-dayopt="${key}" aria-label="Opciones del ${n} de ${MONTH_NAMES[M.m]}"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span>${tot?`<small>${hrs(tot)} h</small>`:""}</button>
+      ${list.map(s=>`<button class="pill" style="--k:${kindOf(s).c}" data-dsess="${key}|${s.id}"><span class="t">${s.s}</span> ${esc(s.t||kindOf(s).name)}</button>`).join("")}
+      ${list.length ? "" : `<span class="rest">Libre</span>`}
+      <button class="dadd" data-dadd="${key}" aria-label="Añadir sesión el ${n}">+</button></div>`;
+  }
+  html += `</div></div><div class="kinds" style="margin:12px 0 0">${KINDS.map(k=>`<span style="--c:${k.c}">${k.name}</span>`).join("")}<span class="chgkey">Día cambiado a mano</span></div>
+    <div class="calfoot"><p>Toca una sesión para cambiarla, <b>+</b> para añadir y el número del día para más opciones.</p>
+    ${stu ? "" : `<button class="btn" data-mode="base">Editar la semana tipo</button>`}</div></section>`;
   return html;
 }
 function studentAccess(stu) {
@@ -363,10 +428,10 @@ function adminStudentCard(stu) {
       const c = st.checks[t.id] || {}; const due = isDue(off,t.d); const k = kindOf(t);
       const stTxt = c.st==="done" ? `✓ Hecha${c.score!=null&&c.score!==""?` · ${c.score}`:""}` : c.st==="no" ? "✗ No" : due ? "Sin marcar" : "Pendiente";
       return `<div class="trow" style="--k:${k.c}"><span class="st ${c.st||"pend"}">${DAYS[t.d]} ${t.s}</span>
-        <span>${esc(t.t||k.name)} <small>· ${k.name}${t.src==="extra"?" · extra":""}${c.why?` · «${esc(c.why)}»`:""}</small></span>
-        <span style="display:flex;gap:6px;align-items:center"><span class="st ${c.st||"pend"}">${stTxt}</span>${t.src==="extra"?`<button class="ghost" data-delx="${stu.id}|${t.id}" aria-label="Quitar tarea extra">Quitar</button>`:""}</span></div>`;
+        <span>${esc(t.t||k.name)} <small>· ${k.name}${t.src==="own"?" · solo para este alumno":""}${c.why?` · «${esc(c.why)}»`:""}</small></span>
+        <span style="display:flex;gap:6px;align-items:center"><span class="st ${c.st||"pend"}">${stTxt}</span></span></div>`;
     }).join("") : `<div class="empty">No hay tareas esta semana.</div>`) + `</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-addx="${stu.id}">+ Tarea solo para ${esc(stu.name.split(" ")[0])}</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-planfor="${stu.id}">Planificar el año de ${esc(stu.name.split(" ")[0])}</button></div>
       <textarea data-note="${stu.id}" placeholder="Nota privada de la semana (el alumno no la ve)">${esc(note)}</textarea>`;
     const opts = allCalIds().map(c=>`<option value="${c}" ${c===stu.calId?"selected":""}>${esc(calLabel(c).text)}</option>`).join("");
     h += `<div class="edit"><input type="text" id="en-${stu.id}" value="${esc(stu.name)}" aria-label="Nombre"><select id="ec-${stu.id}" aria-label="Calendario">${opts}</select>
@@ -473,15 +538,21 @@ document.addEventListener("click", async e => {
   if (b.id === "forgot") { const em = $("#aEmail").value.trim(); if (!em) { ui.authErr = "Escribe tu email y vuelve a pulsar."; render(true); return; }
     try { await be.reset(em); ui.authErr=""; ui.authMsg = "Te hemos enviado un email para cambiar la contraseña."; } catch(err) { ui.authErr = errText(err); } render(true); return; }
   if (b.id === "installBtn" && ui.installEvt) { ui.installEvt.prompt(); ui.installEvt = null; ui.canInstall = false; render(); return; }
-  if (b.dataset.tab) { ui.tab = b.dataset.tab; ui.open = null; saveUi(); render(true); window.scrollTo({top:0}); return; }
-  if (b.dataset.group) { ui.group[Sx.id] = b.dataset.group; ui.open = null; saveUi(); render(true); return; }
-  if (b.dataset.tier) { ui.tier[`${Sx.id}-${ui.group[Sx.id]}`] = b.dataset.tier; ui.open = null; saveUi(); render(true); return; }
-  if (b.dataset.wk) { ui.weekOff = Math.max(-HISTORY_WEEKS, Math.min(1, ui.weekOff + Number(b.dataset.wk))); render(true); return; }
+  if (b.dataset.tab) { ui.tab = b.dataset.tab; ui.open = null; ui.planFor = null; ui.mode = "month"; saveUi(); render(true); window.scrollTo({top:0}); return; }
+  if (b.dataset.group) { ui.group[Sx.id] = b.dataset.group; ui.open = null; ui.planFor = null; saveUi(); render(true); return; }
+  if (b.dataset.tier) { ui.tier[`${Sx.id}-${ui.group[Sx.id]}`] = b.dataset.tier; ui.open = null; ui.planFor = null; saveUi(); render(true); return; }
+  if (b.dataset.wk) { ui.weekOff = Math.max(-HISTORY_WEEKS, Math.min(Math.max(1,courseEndOff()), ui.weekOff + Number(b.dataset.wk))); render(true); return; }
   if (b.dataset.add != null) { openDlg({mode:"cal", day:Number(b.dataset.add)}); return; }
   if (b.dataset.sess) { openDlg({mode:"cal", sessId:b.dataset.sess}); return; }
-  if (b.dataset.addx) { openDlg({mode:"extra", stu:b.dataset.addx, day:0}); return; }
-  if (b.dataset.delx) { const [sid,tid] = b.dataset.delx.split("|"); const wk = weekKey(ui.weekOff); const cur = S.extras[`${sid}__${wk}`]?.tasks || [];
-    await write(() => be.set(`extras/${sid}__${wk}`, {studentId:sid, week:wk, tasks:cur.filter(t=>t.id!==tid)})); toast("Tarea quitada"); return; }
+  if (b.dataset.planfor) { ui.planFor = b.dataset.planfor; ui.mode = "month"; render(true); window.scrollTo({top:0, behavior:"smooth"}); return; }
+  if (b.dataset.planexit) { ui.planFor = null; render(true); return; }
+  if (b.dataset.view) { ui.view = b.dataset.view; render(true); return; }
+  if (b.dataset.mode) { ui.mode = b.dataset.mode; render(true); return; }
+  if (b.dataset.mo) { ui.month = Math.max(0, Math.min(MONTHS.length-1, ui.month + Number(b.dataset.mo))); render(true); return; }
+  if (b.dataset.month) { ui.month = Number(b.dataset.month); render(true); return; }
+  if (b.dataset.dadd) { openDlg({mode:"day", key:b.dataset.dadd}); return; }
+  if (b.dataset.dsess) { const [key, sid] = b.dataset.dsess.split("|"); openDlg({mode:"day", key, sessId:sid}); return; }
+  if (b.dataset.dayopt) { openDayDlg(b.dataset.dayopt); return; }
   if (b.dataset.check) { const cur = stats(S.students[b.dataset.check.split("|")[0]] || S.me, Number(b.dataset.check.split("|")[1])).checks[b.dataset.check.split("|")[2]] || {};
     await setCheck(b.dataset.check, {st: cur.st === b.dataset.st ? null : b.dataset.st}); return; }
   if (b.dataset.open) { ui.open = ui.open === b.dataset.open ? null : b.dataset.open; ui.confirmDel = null; render(true); return; }
@@ -492,7 +563,7 @@ document.addEventListener("click", async e => {
   if (b.dataset.askdel) { ui.confirmDel = b.dataset.askdel; render(true); return; }
   if (b.dataset.savestu) { const id = b.dataset.savestu; const name = $("#en-"+id).value.trim(); if (!name) { toast("Escribe un nombre"); return; }
     const calNew = $("#ec-"+id).value; ui.open = null;
-    await write(() => be.set(`students/${id}`, {...S.students[id], name, calId:calNew}));
+    await write(() => be.merge(`students/${id}`, {name, calId:calNew}));
     if (calNew !== currentCalId()) toast(`${name} ahora está en ${calLabel(calNew).text}`); return; }
   if (b.dataset.delstu) { const id = b.dataset.delstu; ui.open = ui.confirmDel = null;
     await write(async () => {
@@ -542,14 +613,25 @@ const dlg = $("#dlg");
 $("#fKind").innerHTML = KINDS.map(k => `<option value="${k.id}">${k.name}</option>`).join("");
 $("#fDay").innerHTML = DAYS_L.map((d,i) => `<option value="${i}">${d}</option>`).join("");
 let dlgCtx = null;
+const longDate = key => { const [y,m,d] = key.split("-").map(Number); return new Date(y,m-1,d,12).toLocaleDateString("es-ES",{weekday:"long", day:"numeric", month:"long"}); };
+// Where a day's plan is saved: the student's own calendar while planning for one, otherwise the group's.
+function dayTarget(key) {
+  const [y,m,d] = key.split("-").map(Number); const wd = wdOf(new Date(y,m-1,d,12));
+  const stu = ui.planFor ? S.students[ui.planFor] : null; const id = currentCalId();
+  return stu ? {path:`students/${stu.id}`, list: stuDay(stu, key, wd), changed: stu.days?.[key] != null, who: stu.name.split(" ")[0]}
+             : {path:`calendars/${id}`, list: calDay(id, key, wd), changed: S.calendars[id]?.days?.[key] != null, who: null};
+}
+const saveDays = (path, days) => write(() => be.merge(path, {days, updatedAt:new Date().toISOString()}));
 function openDlg(ctx) {
   dlgCtx = ctx;
   let s = null;
   if (ctx.mode === "cal" && ctx.sessId) s = getCal(currentCalId()).sessions.find(x => x.id === ctx.sessId);
-  const stuName = ctx.mode === "extra" ? S.students[ctx.stu]?.name.split(" ")[0] : "";
-  $("#dlgTitle").textContent = ctx.mode === "extra" ? `Tarea solo para ${stuName} · ${weekLabel(ui.weekOff)}` : s ? "Editar sesión" : "Nueva sesión";
-  $("#fDay").value = s ? s.d : ctx.day; $("#fStart").value = s ? s.s : "17:00"; $("#fEnd").value = s ? s.e : (ctx.mode==="extra" ? "17:30" : "19:00");
-  $("#fSubj").value = s ? s.t : ""; $("#fKind").value = s ? kindOf(s).id : (ctx.mode==="extra" ? "repaso" : "materia");
+  if (ctx.mode === "day" && ctx.sessId) s = dayTarget(ctx.key).list.find(x => x.id === ctx.sessId);
+  const who = ctx.mode === "day" ? dayTarget(ctx.key).who : null;
+  $("#dlgTitle").textContent = ctx.mode === "day" ? `${s ? "Editar sesión" : "Nueva sesión"} · ${longDate(ctx.key)}${who ? ` · solo ${who}` : ""}` : s ? "Editar sesión (semana tipo)" : "Nueva sesión (semana tipo)";
+  $("#fDayWrap").hidden = ctx.mode === "day";
+  $("#fDay").value = s ? s.d : (ctx.day ?? 0); $("#fStart").value = s ? s.s : "17:00"; $("#fEnd").value = s ? s.e : "19:00";
+  $("#fSubj").value = s ? s.t : ""; $("#fKind").value = s ? kindOf(s).id : "materia";
   $("#fDel").hidden = !s; $("#fErr").textContent = ""; dlg.showModal();
 }
 $("#fCancel").onclick = () => dlg.close();
@@ -559,19 +641,51 @@ $("#dlgForm").addEventListener("submit", async e => {
   if (!s || !en || mins(en) <= mins(s)) { $("#fErr").textContent = "La hora de fin tiene que ser posterior a la de inicio."; return; }
   const data = {d:Number($("#fDay").value), s, e:en, t:$("#fSubj").value.trim(), k:$("#fKind").value};
   dlg.close();
-  if (dlgCtx.mode === "extra") {
-    const sid = dlgCtx.stu, wk = weekKey(ui.weekOff); const cur = S.extras[`${sid}__${wk}`]?.tasks || [];
-    await write(() => be.set(`extras/${sid}__${wk}`, {studentId:sid, week:wk, tasks:[...cur, {id:"x"+uid(), ...data}]}));
-    toast("Tarea añadida"); return;
+  if (dlgCtx.mode === "day") {
+    const T = dayTarget(dlgCtx.key); const [y,m,d] = dlgCtx.key.split("-").map(Number); data.d = wdOf(new Date(y,m-1,d,12));
+    const list = T.list.map(x => ({...x}));
+    if (dlgCtx.sessId) { const i = list.findIndex(x => x.id === dlgCtx.sessId); if (i >= 0) list[i] = {...list[i], ...data}; }
+    else list.push({id:uid(), ...data});
+    await saveDays(T.path, {[dlgCtx.key]: list}); toast("Día guardado"); return;
   }
   const id = currentCalId(); const sessions = getCal(id).sessions.map(x => ({...x}));
   if (dlgCtx.sessId) { const i = sessions.findIndex(x => x.id === dlgCtx.sessId); if (i >= 0) sessions[i] = {...sessions[i], ...data}; }
   else sessions.push({id:uid(), ...data});
-  await write(() => be.set(`calendars/${id}`, {sessions, updatedAt:new Date().toISOString()})); toast("Calendario guardado");
+  await write(() => be.merge(`calendars/${id}`, {sessions, updatedAt:new Date().toISOString()})); toast("Semana tipo guardada");
 }, true);
 $("#fDel").onclick = async () => {
+  dlg.close();
+  if (dlgCtx.mode === "day") { const T = dayTarget(dlgCtx.key); await saveDays(T.path, {[dlgCtx.key]: T.list.filter(x => x.id !== dlgCtx.sessId)}); toast("Sesión quitada de ese día"); return; }
   const id = currentCalId(); const sessions = getCal(id).sessions.filter(x => x.id !== dlgCtx.sessId);
-  dlg.close(); await write(() => be.set(`calendars/${id}`, {sessions, updatedAt:new Date().toISOString()})); toast("Sesión eliminada");
+  await write(() => be.merge(`calendars/${id}`, {sessions, updatedAt:new Date().toISOString()})); toast("Sesión eliminada");
+};
+
+/* ---------- day options ---------- */
+const dayDlg = $("#dayDlg"); let dayKey = null;
+function openDayDlg(key) {
+  dayKey = key; const T = dayTarget(key);
+  $("#ddTitle").textContent = longDate(key) + (T.who ? ` · solo ${T.who}` : "");
+  $("#ddReset").hidden = !T.changed;
+  $("#ddReset").textContent = T.who ? "Volver al calendario del grupo" : "Volver a la semana tipo";
+  // Weeks left in the course after this one, to repeat this week's plan.
+  const [y,m,d] = key.split("-").map(Number); const off = offFor(new Date(y,m-1,d,12)); const end = courseEndOff();
+  const opts = []; for (let o = off+1; o <= end; o++) { const mo = mondayFor(o); opts.push(`<option value="${o}">${mo.toLocaleDateString("es-ES",{day:"numeric", month:"short", year:"numeric"})}</option>`); }
+  $("#ddUntil").innerHTML = opts.length ? opts.join("") : `<option value="">No quedan semanas</option>`;
+  if (opts.length) $("#ddUntil").value = String(Math.min(end, off+4));
+  $("#ddRepeat").disabled = !opts.length;
+  dayDlg.showModal();
+}
+$("#ddClose").onclick = () => dayDlg.close();
+$("#ddAdd").onclick = () => { dayDlg.close(); openDlg({mode:"day", key:dayKey}); };
+$("#ddFree").onclick = async () => { dayDlg.close(); const T = dayTarget(dayKey); await saveDays(T.path, {[dayKey]: []}); toast("Día libre"); };
+$("#ddReset").onclick = async () => { dayDlg.close(); const T = dayTarget(dayKey); await saveDays(T.path, {[dayKey]: null}); toast("Día restablecido"); };
+$("#ddRepeat").onclick = async () => {
+  const until = Number($("#ddUntil").value); if (!until) return; dayDlg.close();
+  const [y,m,d] = dayKey.split("-").map(Number); const off = offFor(new Date(y,m-1,d,12));
+  const src = []; for (let i=0; i<7; i++) src.push(dayTarget(ymd(dateOf(off,i))).list);
+  const days = {};
+  for (let o = off+1; o <= until; o++) for (let i=0; i<7; i++) days[ymd(dateOf(o,i))] = src[i].map(x => ({...x, d:i}));
+  await saveDays(dayTarget(dayKey).path, days); toast(`Semana repetida ${until-off} ${until-off===1?"vez":"veces"}`);
 };
 
 /* ---------- PWA ---------- */

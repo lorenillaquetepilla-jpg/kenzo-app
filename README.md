@@ -1,6 +1,6 @@
 # Kenzo Planificador
 
-App web instalable (PWA) para Kenzo Academia: calendarios de estudio de los equipos Panda, Koi y Bonsai, tareas que cada alumno marca como hechas o no, e informes para la encargada.
+App web instalable (PWA) para Kenzo Academia: calendarios de estudio de los equipos Panda, Dragón y Tora, tareas que cada alumno marca como hechas o no, e informes para la encargada.
 
 - Sin configurar Firebase (`firebase-config.js` con `PEGA_AQUI...`) funciona en **modo demostración**.
 - Alojamiento: GitHub Pages (gratis). Datos y usuarios: Firebase, plan gratuito Spark.
