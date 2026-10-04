@@ -108,7 +108,17 @@ const saveUi = () => { try { localStorage.setItem("kenzo-ui",JSON.stringify({tab
 
 let subs = [];
 const unsubAll = () => { subs.forEach(u => { try { u(); } catch(e) {} }); subs = []; };
-const onErr = e => { console.warn(e); if (e?.code === "permission-denied") toast("No tienes permiso para ver estos datos."); };
+// Right after joining, the member doc may not be on the server yet, so the first reads can be refused: retry a few times.
+let retries = 0, retryTimer = null;
+const onErr = e => {
+  console.warn(e);
+  if (e?.code !== "permission-denied") return;
+  if (S.member && retries < 5) {
+    if (!retryTimer) retryTimer = setTimeout(() => { retryTimer = null; retries++; unsubAll(); S.member.role === "admin" ? subscribeAdmin() : subscribeStudent(S.member.studentId); }, 1500);
+    return;
+  }
+  toast("No tienes permiso para ver estos datos.");
+};
 
 async function write(fn) { try { await fn(); } catch (e) { console.warn(e); toast(errText(e)); } }
 
@@ -116,6 +126,7 @@ async function write(fn) { try { await fn(); } catch (e) { console.warn(e); toas
 let memberUnsub = null;
 be.onAuth(async u => {
   unsubAll(); if (memberUnsub) { memberUnsub(); memberUnsub = null; }
+  retries = 0; clearTimeout(retryTimer); retryTimer = null;
   Object.assign(S, {user:u, member:undefined, calendars:{}, students:{}, weeks:{}, extras:{}, notes:{}, members:{}, invites:{}, me:null});
   render(true);
   if (!u) return;
@@ -450,7 +461,7 @@ async function copy(text, okMsg) {
   try { await navigator.clipboard.writeText(text); toast(okMsg); }
   catch (e) { const ta=document.createElement("textarea"); ta.value=text; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); toast(okMsg); } catch(_) { toast("No se pudo copiar"); } ta.remove(); }
 }
-async function makeInvite(data) { const code = newCode(); await write(() => be.set(`invites/${code}`, {...data, createdAt:new Date().toISOString()})); return code; }
+async function makeInvite(data) { const code = newCode(); try { await be.set(`invites/${code}`, {...data, createdAt:new Date().toISOString()}); return code; } catch (e) { console.warn(e); toast(errText(e)); return null; } }
 
 document.addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -510,9 +521,9 @@ document.addEventListener("submit", async e => {
   if (f.id === "addStu") { const inp = $("#newStu"); const name = inp.value.trim(); if (!name) return;
     const id = uid(); inp.value = "";
     await write(() => be.set(`students/${id}`, {id, name, calId:currentCalId(), createdAt:new Date().toISOString()}));
-    await makeInvite({role:"student", studentId:id}); ui.open = null; render(true); toast(`${name} añadido. Ya tiene su código de acceso.`); return; }
+    if (!await makeInvite({role:"student", studentId:id})) return; ui.open = null; render(true); toast(`${name} añadido. Ya tiene su código de acceso.`); return; }
   if (f.id === "addAdmin") { const inp = $("#newAdmin"); const name = inp.value.trim(); if (!name) return; inp.value = "";
-    await makeInvite({role:"admin", name}); render(true); toast("Invitación creada. Copia el mensaje y envíaselo."); return; }
+    if (!await makeInvite({role:"admin", name})) { inp.value = name; return; } render(true); toast("Invitación creada. Copia el mensaje y envíaselo."); return; }
 });
 
 document.addEventListener("change", async e => {
