@@ -30,9 +30,11 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // A code works once: whoever used it deletes it right after joining.
     match /invites/{code} {
       allow get: if signedIn();
       allow list, write: if isAdmin();
+      allow delete: if isMember() && me().get('code', '') == code;
     }
 
     match /calendars/{id} {

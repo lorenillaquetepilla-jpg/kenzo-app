@@ -178,6 +178,7 @@ async function join(code) {
     if (inv.name) m.name = inv.name;
     ui.authErr = "";
     await be.set(`members/${S.user.uid}`, m);
+    try { await be.del(`invites/${code}`); } catch (e) { console.warn(e); }
   } catch (e) { ui.authErr = errText(e); render(); }
 }
 
