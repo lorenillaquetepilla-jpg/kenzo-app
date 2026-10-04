@@ -1,5 +1,5 @@
 // Network first, falling back to the cached copy so the app opens without signal.
-const CACHE = "kenzo-v7";
+const CACHE = "kenzo-v8";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "backend-firebase.js", "backend-demo.js", "firebase-config.js",
   "manifest.webmanifest", "icons/mark.png", "icons/word.png", "icons/icon-192.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });

@@ -291,22 +291,24 @@ function studentHtml() {
 }
 function studentMonthHtml(stu) {
   const M = MONTHS[ui.month] || MONTHS[0];
-  const first = new Date(M.y, M.m, 1, 12); const nDays = new Date(M.y, M.m+1, 0).getDate(); const today = ymd(new Date());
+  const first = new Date(M.y, M.m, 1, 12); const nDays = new Date(M.y, M.m+1, 0).getDate(); const today = ymd(new Date()); const sel = selDayIn(M);
   let h = `<section class="panel cal"><div class="monthbar"><button class="mnav" data-mo="-1" aria-label="Mes anterior" ${ui.month<=0?"disabled":""}>‹</button>
     <h3 class="mtitle">${MONTH_NAMES[M.m]} ${M.y}<span>${esc(calLabel(stu.calId).text)}</span></h3>
     <button class="mnav" data-mo="1" aria-label="Mes siguiente" ${ui.month>=MONTHS.length-1?"disabled":""}>›</button></div>
     <div class="mchips" role="group" aria-label="Meses del curso">${MONTHS.map((x,i)=>`<button data-month="${i}" aria-pressed="${i===ui.month}">${MONTH_NAMES[x.m].slice(0,3)}</button>`).join("")}</div>
-    <div class="mgrid"><div class="mhead">${DAYS_L.map(d=>`<span>${d}</span>`).join("")}</div><div class="mdays">`;
+    <div class="mgrid"><div class="mhead">${DAYS_L.map((d,i)=>`<span><span class="lg">${d}</span><span class="sh">${DAYS[i]}</span></span>`).join("")}</div><div class="mdays">`;
   for (let i=0; i<wdOf(first); i++) h += `<div class="mday blank" aria-hidden="true"></div>`;
   for (let n=1; n<=nDays; n++) {
     const date = new Date(M.y, M.m, n, 12); const key = ymd(date); const wd = wdOf(date);
     const list = stuDay(stu, key, wd).slice().sort((a,b)=>mins(a.s)-mins(b.s));
     const checks = S.weeks[`${stu.id}__${isoWeek(date)}`]?.checks || {};
-    h += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""}"><span class="dnum"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span></span>
+    h += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""}"><button class="dsel ${key===sel?"on":""}" data-sel="${key}" aria-label="Ver el ${n}"><b>${n}</b><i>${list.map(t=>`<u class="${checks[t.id]?.st||""}" style="--k:${kindOf(t).c}"></u>`).join("")}</i></button><span class="dnum"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span></span>
       ${list.map(t=>{ const st = checks[t.id]?.st; return `<span class="pill ${st||""}" style="--k:${kindOf(t).c}">${st==="done"?"✓ ":st==="no"?"✗ ":""}<span class="t">${t.s}</span> ${esc(t.t||kindOf(t).name)}</span>`; }).join("")}
       ${list.length ? "" : `<span class="rest">Libre</span>`}</div>`;
   }
-  return h + `</div></div><div class="kinds" style="margin:12px 0 0">${KINDS.map(k=>`<span style="--c:${k.c}">${k.name}</span>`).join("")}</div>
+  { const [y,m,d] = sel.split("-").map(Number); const dt = new Date(y,m-1,d,12);
+    h += `</div></div>` + dayViewHtml(sel, stuDay(stu, sel, wdOf(dt)).slice().sort((a,b)=>mins(a.s)-mins(b.s)), false, S.weeks[`${stu.id}__${isoWeek(dt)}`]?.checks); }
+  return h + `<div class="kinds" style="margin:12px 0 0">${KINDS.map(k=>`<span style="--c:${k.c}">${k.name}</span>`).join("")}</div>
     <p class="hint" style="margin:10px 0 0;font-size:13px;color:var(--muted)">Las tareas se marcan en «Mi semana».</p></section>`;
 }
 function studentWeekHtml(stu) {
@@ -379,18 +381,28 @@ function baseWeekHtml(id, T, sessions, isTemplate) {
   }
   return html + `</div></section>`;
 }
+// On phones the grid only shows coloured marks; the tapped day's sessions are listed under it.
+function selDayIn(M) { const k = ui.selDay; const pre = `${M.y}-${String(M.m+1).padStart(2,"0")}-`;
+  if (k && k.startsWith(pre)) return k; const t = ymd(new Date()); return t.startsWith(pre) ? t : pre + "01"; }
+function dayViewHtml(key, list, editable, checks) {
+  return `<div class="dayview"><div class="dvhead"><h4>${longDate(key)}</h4>${editable?`<button class="btn" data-dayopt="${key}">Opciones</button>`:""}</div>
+    ${list.length ? list.map(t => { const st = checks?.[t.id]?.st; const k = kindOf(t);
+      const inner = `<span class="t">${t.s}–${t.e}</span><span class="k">${k.name}</span><span class="s">${st==="done"?"✓ ":st==="no"?"✗ ":""}${esc(t.t||k.name)}</span>`;
+      return editable ? `<button class="sess" style="--k:${k.c}" data-dsess="${key}|${t.id}">${inner}</button>` : `<div class="sess ${st||""}" style="--k:${k.c}">${inner}</div>`; }).join("") : `<div class="rest">Día libre</div>`}
+    ${editable?`<button class="add" data-dadd="${key}">+ Añadir sesión</button>`:""}</div>`;
+}
 function monthHtml(id, Sx, T) {
   const stu = ui.planFor ? S.students[ui.planFor] : null;
   const M = MONTHS[ui.month] || MONTHS[0];
   const first = new Date(M.y, M.m, 1, 12); const nDays = new Date(M.y, M.m+1, 0).getDate();
-  const today = ymd(new Date()); const lab = calLabel(id);
+  const today = ymd(new Date()); const lab = calLabel(id); const sel = selDayIn(M);
   let html = `<section class="panel cal">`;
   if (stu) html += `<div class="planfor"><span>Estás planificando solo para <b>${esc(stu.name)}</b>. Lo que cambies aquí no afecta al resto del grupo.</span><button class="btn" data-planexit="1">Volver al calendario del grupo</button></div>`;
   html += `<div class="monthbar"><button class="mnav" data-mo="-1" aria-label="Mes anterior" ${ui.month<=0?"disabled":""}>‹</button>
     <h3 class="mtitle">${MONTH_NAMES[M.m]} ${M.y}<span>${esc(stu ? stu.name : `${Sx.name} · ${lab.G.name.replace(/ \(.*\)/,"")}`)} · ${esc(T.label)}</span></h3>
     <button class="mnav" data-mo="1" aria-label="Mes siguiente" ${ui.month>=MONTHS.length-1?"disabled":""}>›</button></div>
     <div class="mchips" role="group" aria-label="Meses del curso">${MONTHS.map((x,i)=>`<button data-month="${i}" aria-pressed="${i===ui.month}">${MONTH_NAMES[x.m].slice(0,3)}</button>`).join("")}</div>
-    <div class="mgrid"><div class="mhead">${DAYS_L.map(d=>`<span>${d}</span>`).join("")}</div><div class="mdays">`;
+    <div class="mgrid"><div class="mhead">${DAYS_L.map((d,i)=>`<span><span class="lg">${d}</span><span class="sh">${DAYS[i]}</span></span>`).join("")}</div><div class="mdays">`;
   for (let i=0; i<wdOf(first); i++) html += `<div class="mday blank" aria-hidden="true"></div>`;
   for (let n=1; n<=nDays; n++) {
     const date = new Date(M.y, M.m, n, 12); const key = ymd(date); const wd = wdOf(date);
@@ -398,12 +410,15 @@ function monthHtml(id, Sx, T) {
     const changed = stu ? stu.days?.[key] != null : S.calendars[id]?.days?.[key] != null;
     const tot = list.reduce((a,s)=>a+dur(s),0);
     html += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""} ${changed?"changed":""}">
+      <button class="dsel ${key===sel?"on":""}" data-sel="${key}" aria-label="Ver el ${n} de ${MONTH_NAMES[M.m]}"><b>${n}</b><i>${list.map(s=>`<u style="--k:${kindOf(s).c}"></u>`).join("")}</i></button>
       <button class="dnum" data-dayopt="${key}" aria-label="Opciones del ${n} de ${MONTH_NAMES[M.m]}"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span>${tot?`<small>${hrs(tot)} h</small>`:""}</button>
       ${list.map(s=>`<button class="pill" style="--k:${kindOf(s).c}" data-dsess="${key}|${s.id}"><span class="t">${s.s}</span> ${esc(s.t||kindOf(s).name)}</button>`).join("")}
       ${list.length ? "" : `<span class="rest">Libre</span>`}
       <button class="dadd" data-dadd="${key}" aria-label="Añadir sesión el ${n}">+</button></div>`;
   }
-  html += `</div></div><div class="kinds" style="margin:12px 0 0">${KINDS.map(k=>`<span style="--c:${k.c}">${k.name}</span>`).join("")}<span class="chgkey">Día cambiado a mano</span></div>
+  { const [y,m,d] = sel.split("-").map(Number); const wd = wdOf(new Date(y,m-1,d,12));
+    html += `</div></div>` + dayViewHtml(sel, (stu ? stuDay(stu, sel, wd) : calDay(id, sel, wd)).slice().sort((a,b)=>mins(a.s)-mins(b.s)), true); }
+  html += `<div class="kinds" style="margin:12px 0 0">${KINDS.map(k=>`<span style="--c:${k.c}">${k.name}</span>`).join("")}<span class="chgkey">Día cambiado a mano</span></div>
     <div class="calfoot"><p>Toca una sesión para cambiarla, <b>+</b> para añadir y el número del día para más opciones.</p>
     ${stu ? "" : `<button class="btn" data-mode="base">Editar la semana tipo</button>`}</div></section>`;
   return html;
@@ -546,10 +561,11 @@ document.addEventListener("click", async e => {
   if (b.dataset.sess) { openDlg({mode:"cal", sessId:b.dataset.sess}); return; }
   if (b.dataset.planfor) { ui.planFor = b.dataset.planfor; ui.mode = "month"; render(true); window.scrollTo({top:0, behavior:"smooth"}); return; }
   if (b.dataset.planexit) { ui.planFor = null; render(true); return; }
+  if (b.dataset.sel) { ui.selDay = b.dataset.sel; render(true); return; }
   if (b.dataset.view) { ui.view = b.dataset.view; render(true); return; }
   if (b.dataset.mode) { ui.mode = b.dataset.mode; render(true); return; }
-  if (b.dataset.mo) { ui.month = Math.max(0, Math.min(MONTHS.length-1, ui.month + Number(b.dataset.mo))); render(true); return; }
-  if (b.dataset.month) { ui.month = Number(b.dataset.month); render(true); return; }
+  if (b.dataset.mo) { ui.month = Math.max(0, Math.min(MONTHS.length-1, ui.month + Number(b.dataset.mo))); ui.selDay = null; render(true); return; }
+  if (b.dataset.month) { ui.month = Number(b.dataset.month); ui.selDay = null; render(true); return; }
   if (b.dataset.dadd) { openDlg({mode:"day", key:b.dataset.dadd}); return; }
   if (b.dataset.dsess) { const [key, sid] = b.dataset.dsess.split("|"); openDlg({mode:"day", key, sessId:sid}); return; }
   if (b.dataset.dayopt) { openDayDlg(b.dataset.dayopt); return; }
