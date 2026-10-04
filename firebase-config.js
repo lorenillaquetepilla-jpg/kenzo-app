@@ -6,6 +6,5 @@ export default {
   projectId: "kenzo-planis",
   storageBucket: "kenzo-planis.firebasestorage.app",
   messagingSenderId: "107913183503",
-  appId: "1:107913183503:web:78c18991ac4e3cb5a5be7a",
-  databaseId: "kenzo"
+  appId: "1:107913183503:web:78c18991ac4e3cb5a5be7a"
 };
