@@ -8,8 +8,9 @@ export function makeBackend(cfg) {
   const app = initializeApp(cfg);
   const auth = A.getAuth(app);
   let fs;
-  try { fs = F.initializeFirestore(app, { localCache: F.persistentLocalCache() }); }
-  catch (e) { fs = F.getFirestore(app); }
+  const dbId = cfg.databaseId || "(default)";
+  try { fs = F.initializeFirestore(app, { localCache: F.persistentLocalCache() }, dbId); }
+  catch (e) { fs = F.getFirestore(app, dbId); }
   const d = p => F.doc(fs, p);
   return {
     demo: false,
