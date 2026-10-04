@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kenzo Planificador</title>
+<meta name="description" content="Calendarios de estudio y seguimiento de alumnos de Kenzo Academia.">
+<meta name="theme-color" content="#25464F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kenzo">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@600;800&family=Noto+Sans+JP:wght@300;400;500;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="styles.css">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>
+</head>
+<body>
+<div class="band"><div class="wrap">
+  <div class="brandrow">
+    <img class="mark" alt="" src="icons/mark.png">
+    <div class="brand"><h1><img class="word" alt="Kenzo" src="icons/word.png"></h1><p>Academia · Planificador</p></div>
+  </div>
+  <div class="who" id="who"></div>
+</div></div>
+<nav class="tabs" aria-label="Secciones" id="nav" hidden><div class="wrap" id="tabs"></div></nav>
+<main class="wrap" id="main"><p class="empty">Cargando…</p></main>
+
+<dialog id="dlg"><form id="dlgForm" method="dialog">
+  <h4 id="dlgTitle">Sesión</h4>
+  <label>Día<select id="fDay"></select></label>
+  <div class="row2">
+    <label>Empieza<input type="time" id="fStart" required step="900"></label>
+    <label>Termina<input type="time" id="fEnd" required step="900"></label>
+  </div>
+  <label>Tipo de sesión<select id="fKind"></select></label>
+  <label>Materia o tema<input type="text" id="fSubj" maxlength="60" placeholder="Ej.: Constitución, Derecho Penal, Tema 12…"></label>
+  <div class="err" id="fErr"></div>
+  <div class="dlgbtns">
+    <button type="button" class="btn danger" id="fDel">Eliminar</button>
+    <button type="button" class="btn" id="fCancel">Cancelar</button>
+    <button type="submit" class="btn primary">Guardar</button>
+  </div>
+</form></dialog>
+<div class="toast" id="toast" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

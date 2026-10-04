@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function memberPath() { return /databases/$(database)/documents/members/$(request.auth.uid); }
+    function isMember() { return signedIn() && exists(memberPath()); }
+    function me() { return get(memberPath()).data; }
+    function isAdmin() { return isMember() && me().role == 'admin'; }
+    function myStudent() { return me().get('studentId', ''); }
+    function setupPath() { return /databases/$(database)/documents/config/setup; }
+    function invite(code) { return get(/databases/$(database)/documents/invites/$(code)).data; }
+
+    // First person to configure the academy becomes its director.
+    match /config/setup {
+      allow get: if signedIn();
+      allow create: if signedIn() && !exists(setupPath())
+        && getAfter(memberPath()).data.role == 'admin';
+    }
+
+    match /members/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn() && request.auth.uid == uid && (
+        (request.resource.data.role == 'admin' && !exists(setupPath()) && existsAfter(setupPath()))
+        || (request.resource.data.keys().hasAll(['code', 'role'])
+            && exists(/databases/$(database)/documents/invites/$(request.resource.data.code))
+            && invite(request.resource.data.code).role == request.resource.data.role
+            && invite(request.resource.data.code).get('studentId', '') == request.resource.data.get('studentId', ''))
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow list, write: if isAdmin();
+    }
+
+    match /calendars/{id} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
+    match /students/{id} {
+      allow get: if isAdmin() || (isMember() && myStudent() == id);
+      allow list, write: if isAdmin();
+    }
+
+    match /extras/{id} {
+      allow read: if isAdmin() || (isMember() && resource.data.studentId == myStudent());
+      allow write: if isAdmin();
+    }
+
+    // Students tick their own tasks; the encargada can correct them.
+    match /weeks/{id} {
+      allow read: if isAdmin() || (isMember() && resource.data.studentId == myStudent());
+      allow create, update: if isAdmin() || (isMember() && myStudent() != ''
+        && request.resource.data.studentId == myStudent()
+        && id == myStudent() + '__' + request.resource.data.week
+        && (resource == null || resource.data.studentId == myStudent()));
+      allow delete: if isAdmin();
+    }
+
+    match /notes/{id} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
