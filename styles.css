@@ -267,3 +267,4 @@ button.pill:hover{background:color-mix(in srgb,var(--k) 22%,var(--surface))}
 @media (max-width:520px){.panel h3.mtitle{letter-spacing:.08em;font-size:26px}.mtitle span{letter-spacing:.12em}.cal{padding:12px}}
 .mhead .sh{display:none}
 @media (max-width:760px){.mhead .lg{display:none}.mhead .sh{display:inline}}
+dialog label.chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);font-weight:500}

@@ -91,8 +91,8 @@ function template(tierId) {
     "78":[["08:30","12:30","Temario","materia"],["15:00","17:30","Repaso del día","repaso"],["17:30","19:00","Test del tema","test"]]
   }[tierId] || [];
   const out = [];
-  for (let d=0; d<5; d++) B.forEach(([s,e,t,k],i) => out.push({id:`t${d}_${i}`,d,s,e,t,k}));
-  out.push({id:"t5_0",d:5,s:"10:00",e:tierId==="2"?"12:00":"13:00",t:"Simulacro semanal",k:"examen"});
+  for (let d=0; d<5; d++) B.forEach(([,,t,k],i) => out.push({id:`t${d}_${i}`,d,s:"",e:"",t,k}));
+  out.push({id:"t5_0",d:5,s:"",e:"",t:"Simulacro semanal",k:"examen"});
   return out;
 }
 function offFor(date) { const m=new Date(date); m.setHours(12,0,0,0); m.setDate(m.getDate()-((m.getDay()+6)%7)); return Math.round((m-mondayFor(0))/(7*864e5)); }
@@ -107,7 +107,10 @@ function getCal(id) {
   if (c && Array.isArray(c.sessions)) return {sessions:c.sessions,isTemplate:false};
   return {sessions:template(String(id).split("-")[2]),isTemplate:true};
 }
-const dur = s => Math.max(0, mins(s.e)-mins(s.s))/60;
+// Times are optional: a session without them counts as a task for the day, with no hours.
+const dur = s => s.s && s.e ? Math.max(0, mins(s.e)-mins(s.s))/60 : 0;
+const tkey = s => s.s ? mins(s.s) : 1e9;
+const tm = s => s.s ? (s.e ? `${s.s}–${s.e}` : s.s) : "";
 function dayHours(sessions) { const h=[0,0,0,0,0,0,0]; for (const s of sessions) h[s.d]+=dur(s); return h; }
 
 /* ---------- state ---------- */
@@ -195,7 +198,7 @@ function tasksFor(stu, off) {
   const out = [];
   for (let d=0; d<7; d++) { const key = ymd(dateOf(off,d)); const own = stu.days?.[key] != null;
     for (const s of stuDay(stu, key, d)) out.push({...s, d, src: own ? "own" : "cal"}); }
-  return out.sort((a,b) => a.d-b.d || mins(a.s)-mins(b.s));
+  return out.sort((a,b) => a.d-b.d || tkey(a)-tkey(b));
 }
 function stats(stu, off) {
   const wk = weekKey(off);
@@ -300,14 +303,14 @@ function studentMonthHtml(stu) {
   for (let i=0; i<wdOf(first); i++) h += `<div class="mday blank" aria-hidden="true"></div>`;
   for (let n=1; n<=nDays; n++) {
     const date = new Date(M.y, M.m, n, 12); const key = ymd(date); const wd = wdOf(date);
-    const list = stuDay(stu, key, wd).slice().sort((a,b)=>mins(a.s)-mins(b.s));
+    const list = stuDay(stu, key, wd).slice().sort((a,b)=>tkey(a)-tkey(b));
     const checks = S.weeks[`${stu.id}__${isoWeek(date)}`]?.checks || {};
     h += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""}"><button class="dsel ${key===sel?"on":""}" data-sel="${key}" aria-label="Ver el ${n}"><b>${n}</b><i>${list.map(t=>`<u class="${checks[t.id]?.st||""}" style="--k:${kindOf(t).c}"></u>`).join("")}</i></button><span class="dnum"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span></span>
-      ${list.map(t=>{ const st = checks[t.id]?.st; return `<span class="pill ${st||""}" style="--k:${kindOf(t).c}">${st==="done"?"✓ ":st==="no"?"✗ ":""}<span class="t">${t.s}</span> ${esc(t.t||kindOf(t).name)}</span>`; }).join("")}
+      ${list.map(t=>{ const st = checks[t.id]?.st; return `<span class="pill ${st||""}" style="--k:${kindOf(t).c}">${st==="done"?"✓ ":st==="no"?"✗ ":""}${t.s?`<span class="t">${t.s}</span> `:""}${esc(t.t||kindOf(t).name)}</span>`; }).join("")}
       ${list.length ? "" : `<span class="rest">Libre</span>`}</div>`;
   }
   { const [y,m,d] = sel.split("-").map(Number); const dt = new Date(y,m-1,d,12);
-    h += `</div></div>` + dayViewHtml(sel, stuDay(stu, sel, wdOf(dt)).slice().sort((a,b)=>mins(a.s)-mins(b.s)), false, S.weeks[`${stu.id}__${isoWeek(dt)}`]?.checks); }
+    h += `</div></div>` + dayViewHtml(sel, stuDay(stu, sel, wdOf(dt)).slice().sort((a,b)=>tkey(a)-tkey(b)), false, S.weeks[`${stu.id}__${isoWeek(dt)}`]?.checks); }
   return h + `<div class="kinds" style="margin:12px 0 0">${KINDS.map(k=>`<span style="--c:${k.c}">${k.name}</span>`).join("")}</div>
     <p class="hint" style="margin:10px 0 0;font-size:13px;color:var(--muted)">Las tareas se marcan en «Mi semana».</p></section>`;
 }
@@ -335,7 +338,7 @@ function taskCard(stu, off, t, c) {
   const k = kindOf(t); const due = isDue(off, t.d);
   const key = `${stu.id}|${off}|${t.id}`;
   return `<div class="task ${due?"":"future"}" style="--k:${k.c}">
-    <div class="row"><div class="info"><span class="t">${t.s}–${t.e}</span><span class="k">${k.name}</span><span class="s">${esc(t.t || k.name)}</span></div>
+    <div class="row"><div class="info">${t.s?`<span class="t">${tm(t)}</span>`:""}<span class="k">${k.name}</span><span class="s">${esc(t.t || k.name)}</span></div>
     <div class="checks"><button data-check="${key}" data-st="done" data-on="${c.st==="done"?"done":""}" ${due?"":"disabled"}>✓ Hecha</button><button data-check="${key}" data-st="no" data-on="${c.st==="no"?"no":""}" ${due?"":"disabled"}>✗ No</button></div></div>
     ${c.st==="no" ? `<div class="extra"><input type="text" data-why="${key}" value="${esc(c.why||"")}" maxlength="120" placeholder="¿Qué ha pasado? (opcional)" aria-label="Motivo"></div>` : ""}
     ${c.st==="done" && SCORED.has(k.id) ? `<div class="extra"><label style="font-size:13px;color:var(--muted)">Nota</label><input class="score" type="number" inputmode="decimal" min="0" max="10" step="0.1" data-score="${key}" value="${c.score ?? ""}" placeholder="0–10" aria-label="Nota"></div>` : ""}
@@ -369,13 +372,13 @@ function sectionHtml() {
 function baseWeekHtml(id, T, sessions, isTemplate) {
   const h = dayHours(sessions); const week = h.reduce((a,b)=>a+b,0);
   let html = `<section class="panel"><div class="phead"><h3>Semana tipo · ${esc(T.label)} al día</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    ${isTemplate?`<span class="chip">Plantilla sugerida</span>`:""}<span class="chip">${hrs(week)} h / semana</span><button class="btn" data-mode="month">Volver al calendario</button></div></div>
+    ${isTemplate?`<span class="chip">Plantilla sugerida</span>`:""}<span class="chip">${hrs(week)} h / semana</span><button class="btn" data-striphours="1">Quitar todas las horas</button><button class="btn" data-mode="month">Volver al calendario</button></div></div>
     <p class="hint" style="margin:0 0 12px;font-size:13px;color:var(--muted)">La semana tipo rellena todos los días del curso que no hayas cambiado a mano.</p><div class="week">`;
   for (let d=0; d<7; d++) {
-    const list = sessions.filter(s=>s.d===d).sort((a,b)=>mins(a.s)-mins(b.s));
+    const list = sessions.filter(s=>s.d===d).sort((a,b)=>tkey(a)-tkey(b));
     const cls = h[d]>T.max ? "over" : (h[d]>0 && h[d]<T.min) ? "under" : "";
     html += `<div class="day"><header><b>${DAYS_L[d]}</b><small class="${cls}">${h[d]?hrs(h[d])+" h":"—"}</small></header>`;
-    html += list.map(s=>`<button class="sess" style="--k:${kindOf(s).c}" data-sess="${s.id}"><span class="t">${s.s}–${s.e}<span class="k">${kindOf(s).name}</span></span><span class="s">${esc(s.t||kindOf(s).name)}</span></button>`).join("");
+    html += list.map(s=>`<button class="sess" style="--k:${kindOf(s).c}" data-sess="${s.id}"><span class="t">${tm(s)}<span class="k">${kindOf(s).name}</span></span><span class="s">${esc(s.t||kindOf(s).name)}</span></button>`).join("");
     if (!list.length) html += `<div class="rest">Descanso</div>`;
     html += `<button class="add" data-add="${d}">+ Añadir</button></div>`;
   }
@@ -387,7 +390,7 @@ function selDayIn(M) { const k = ui.selDay; const pre = `${M.y}-${String(M.m+1).
 function dayViewHtml(key, list, editable, checks) {
   return `<div class="dayview"><div class="dvhead"><h4>${longDate(key)}</h4>${editable?`<button class="btn" data-dayopt="${key}">Opciones</button>`:""}</div>
     ${list.length ? list.map(t => { const st = checks?.[t.id]?.st; const k = kindOf(t);
-      const inner = `<span class="t">${t.s}–${t.e}</span><span class="k">${k.name}</span><span class="s">${st==="done"?"✓ ":st==="no"?"✗ ":""}${esc(t.t||k.name)}</span>`;
+      const inner = `${t.s?`<span class="t">${tm(t)}</span>`:""}<span class="k">${k.name}</span><span class="s">${st==="done"?"✓ ":st==="no"?"✗ ":""}${esc(t.t||k.name)}</span>`;
       return editable ? `<button class="sess" style="--k:${k.c}" data-dsess="${key}|${t.id}">${inner}</button>` : `<div class="sess ${st||""}" style="--k:${k.c}">${inner}</div>`; }).join("") : `<div class="rest">Día libre</div>`}
     ${editable?`<button class="add" data-dadd="${key}">+ Añadir sesión</button>`:""}</div>`;
 }
@@ -406,18 +409,18 @@ function monthHtml(id, Sx, T) {
   for (let i=0; i<wdOf(first); i++) html += `<div class="mday blank" aria-hidden="true"></div>`;
   for (let n=1; n<=nDays; n++) {
     const date = new Date(M.y, M.m, n, 12); const key = ymd(date); const wd = wdOf(date);
-    const list = (stu ? stuDay(stu, key, wd) : calDay(id, key, wd)).slice().sort((a,b)=>mins(a.s)-mins(b.s));
+    const list = (stu ? stuDay(stu, key, wd) : calDay(id, key, wd)).slice().sort((a,b)=>tkey(a)-tkey(b));
     const changed = stu ? stu.days?.[key] != null : S.calendars[id]?.days?.[key] != null;
     const tot = list.reduce((a,s)=>a+dur(s),0);
     html += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""} ${changed?"changed":""}">
       <button class="dsel ${key===sel?"on":""}" data-sel="${key}" aria-label="Ver el ${n} de ${MONTH_NAMES[M.m]}"><b>${n}</b><i>${list.map(s=>`<u style="--k:${kindOf(s).c}"></u>`).join("")}</i></button>
       <button class="dnum" data-dayopt="${key}" aria-label="Opciones del ${n} de ${MONTH_NAMES[M.m]}"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span>${tot?`<small>${hrs(tot)} h</small>`:""}</button>
-      ${list.map(s=>`<button class="pill" style="--k:${kindOf(s).c}" data-dsess="${key}|${s.id}"><span class="t">${s.s}</span> ${esc(s.t||kindOf(s).name)}</button>`).join("")}
+      ${list.map(s=>`<button class="pill" style="--k:${kindOf(s).c}" data-dsess="${key}|${s.id}">${s.s?`<span class="t">${s.s}</span> `:""}${esc(s.t||kindOf(s).name)}</button>`).join("")}
       ${list.length ? "" : `<span class="rest">Libre</span>`}
       <button class="dadd" data-dadd="${key}" aria-label="Añadir sesión el ${n}">+</button></div>`;
   }
   { const [y,m,d] = sel.split("-").map(Number); const wd = wdOf(new Date(y,m-1,d,12));
-    html += `</div></div>` + dayViewHtml(sel, (stu ? stuDay(stu, sel, wd) : calDay(id, sel, wd)).slice().sort((a,b)=>mins(a.s)-mins(b.s)), true); }
+    html += `</div></div>` + dayViewHtml(sel, (stu ? stuDay(stu, sel, wd) : calDay(id, sel, wd)).slice().sort((a,b)=>tkey(a)-tkey(b)), true); }
   html += `<div class="kinds" style="margin:12px 0 0">${KINDS.map(k=>`<span style="--c:${k.c}">${k.name}</span>`).join("")}<span class="chgkey">Día cambiado a mano</span></div>
     <div class="calfoot"><p>Toca una sesión para cambiarla, <b>+</b> para añadir y el número del día para más opciones.</p>
     ${stu ? "" : `<button class="btn" data-mode="base">Editar la semana tipo</button>`}</div></section>`;
@@ -442,7 +445,7 @@ function adminStudentCard(stu) {
     h += `<div class="tlist">` + (st.tasks.length ? st.tasks.map(t => {
       const c = st.checks[t.id] || {}; const due = isDue(off,t.d); const k = kindOf(t);
       const stTxt = c.st==="done" ? `✓ Hecha${c.score!=null&&c.score!==""?` · ${c.score}`:""}` : c.st==="no" ? "✗ No" : due ? "Sin marcar" : "Pendiente";
-      return `<div class="trow" style="--k:${k.c}"><span class="st ${c.st||"pend"}">${DAYS[t.d]} ${t.s}</span>
+      return `<div class="trow" style="--k:${k.c}"><span class="st ${c.st||"pend"}">${DAYS[t.d]}${t.s?" "+t.s:""}</span>
         <span>${esc(t.t||k.name)} <small>· ${k.name}${t.src==="own"?" · solo para este alumno":""}${c.why?` · «${esc(c.why)}»`:""}</small></span>
         <span style="display:flex;gap:6px;align-items:center"><span class="st ${c.st||"pend"}">${stTxt}</span></span></div>`;
     }).join("") : `<div class="empty">No hay tareas esta semana.</div>`) + `</div>
@@ -562,6 +565,10 @@ document.addEventListener("click", async e => {
   if (b.dataset.planfor) { ui.planFor = b.dataset.planfor; ui.mode = "month"; render(true); window.scrollTo({top:0, behavior:"smooth"}); return; }
   if (b.dataset.planexit) { ui.planFor = null; render(true); return; }
   if (b.dataset.sel) { ui.selDay = b.dataset.sel; render(true); return; }
+  if (b.dataset.striphours) { const id = currentCalId(); const c = S.calendars[id] || {}; const strip = l => l.map(x => ({...x, s:"", e:""}));
+    const days = {}; for (const [k,v] of Object.entries(c.days || {})) if (v) days[k] = strip(v);
+    await write(() => be.merge(`calendars/${id}`, {sessions: strip(getCal(id).sessions), days, updatedAt:new Date().toISOString()}));
+    toast("Horas quitadas de este calendario"); return; }
   if (b.dataset.view) { ui.view = b.dataset.view; render(true); return; }
   if (b.dataset.mode) { ui.mode = b.dataset.mode; render(true); return; }
   if (b.dataset.mo) { ui.month = Math.max(0, Math.min(MONTHS.length-1, ui.month + Number(b.dataset.mo))); ui.selDay = null; render(true); return; }
@@ -646,16 +653,19 @@ function openDlg(ctx) {
   const who = ctx.mode === "day" ? dayTarget(ctx.key).who : null;
   $("#dlgTitle").textContent = ctx.mode === "day" ? `${s ? "Editar sesión" : "Nueva sesión"} · ${longDate(ctx.key)}${who ? ` · solo ${who}` : ""}` : s ? "Editar sesión (semana tipo)" : "Nueva sesión (semana tipo)";
   $("#fDayWrap").hidden = ctx.mode === "day";
-  $("#fDay").value = s ? s.d : (ctx.day ?? 0); $("#fStart").value = s ? s.s : "17:00"; $("#fEnd").value = s ? s.e : "19:00";
+  $("#fDay").value = s ? s.d : (ctx.day ?? 0); $("#fStart").value = s?.s || "17:00"; $("#fEnd").value = s?.e || "19:00";
+  $("#fTimed").checked = !!s?.s; $("#fTimeRow").hidden = !s?.s;
   $("#fSubj").value = s ? s.t : ""; $("#fKind").value = s ? kindOf(s).id : "materia";
   $("#fDel").hidden = !s; $("#fErr").textContent = ""; dlg.showModal();
 }
 $("#fCancel").onclick = () => dlg.close();
+$("#fTimed").onchange = () => { $("#fTimeRow").hidden = !$("#fTimed").checked; };
 $("#dlgForm").addEventListener("submit", async e => {
   e.preventDefault(); e.stopPropagation();
   const s = $("#fStart").value, en = $("#fEnd").value;
-  if (!s || !en || mins(en) <= mins(s)) { $("#fErr").textContent = "La hora de fin tiene que ser posterior a la de inicio."; return; }
-  const data = {d:Number($("#fDay").value), s, e:en, t:$("#fSubj").value.trim(), k:$("#fKind").value};
+  const timed = $("#fTimed").checked;
+  if (timed && (!s || !en || mins(en) <= mins(s))) { $("#fErr").textContent = "La hora de fin tiene que ser posterior a la de inicio."; return; }
+  const data = {d:Number($("#fDay").value), s: timed ? s : "", e: timed ? en : "", t:$("#fSubj").value.trim(), k:$("#fKind").value};
   dlg.close();
   if (dlgCtx.mode === "day") {
     const T = dayTarget(dlgCtx.key); const [y,m,d] = dlgCtx.key.split("-").map(Number); data.d = wdOf(new Date(y,m-1,d,12));

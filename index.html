@@ -32,9 +32,10 @@
 <dialog id="dlg"><form id="dlgForm" method="dialog">
   <h4 id="dlgTitle">Sesión</h4>
   <label id="fDayWrap">Día de la semana<select id="fDay"></select></label>
-  <div class="row2">
-    <label>Empieza<input type="time" id="fStart" required step="900"></label>
-    <label>Termina<input type="time" id="fEnd" required step="900"></label>
+  <label class="chk"><input type="checkbox" id="fTimed"> Poner hora</label>
+  <div class="row2" id="fTimeRow" hidden>
+    <label>Empieza<input type="time" id="fStart" step="900"></label>
+    <label>Termina<input type="time" id="fEnd" step="900"></label>
   </div>
   <label>Tipo de sesión<select id="fKind"></select></label>
   <label>Materia o tema<input type="text" id="fSubj" maxlength="60" placeholder="Ej.: Constitución, Derecho Penal, Tema 12…"></label>
