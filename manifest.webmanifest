@@ -1,6 +1,6 @@
 {
-  "name": "Kenzo Planificador",
-  "short_name": "Kenzo",
+  "name": "Agenda Kenzo",
+  "short_name": "Agenda Kenzo",
   "description": "Calendarios de estudio y seguimiento de alumnos de Kenzo Academia.",
   "lang": "es",
   "start_url": "./",
