@@ -268,3 +268,4 @@ button.pill:hover{background:color-mix(in srgb,var(--k) 22%,var(--surface))}
 .mhead .sh{display:none}
 @media (max-width:760px){.mhead .lg{display:none}.mhead .sh{display:inline}}
 dialog label.chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink);font-weight:500}
+.auth{width:100%;grid-template-columns:minmax(0,1fr)}.auth input{width:100%;min-width:0}
