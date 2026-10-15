@@ -26,6 +26,8 @@ const KINDS = [
   {id:"otro",name:"Otro",c:"var(--muted)"}
 ];
 const SCORED = new Set(["test","examen"]);
+// Test and exam marks: up to 120, negative allowed for the penalty on wrong answers.
+const SCORE_MIN = -120, SCORE_MAX = 120;
 const kindOf = s => KINDS.find(k => k.id === s.k) || KINDS[0];
 const SEC_COLOR = {panda:"var(--panda)",koi:"var(--koi)",bonsai:"var(--bonsai)"};
 const HISTORY_WEEKS = 8;
@@ -341,7 +343,7 @@ function taskCard(stu, off, t, c) {
     <div class="row"><div class="info">${t.s?`<span class="t">${tm(t)}</span>`:""}<span class="k">${k.name}</span><span class="s">${esc(t.t || k.name)}</span></div>
     <div class="checks"><button data-check="${key}" data-st="done" data-on="${c.st==="done"?"done":""}" ${due?"":"disabled"}>✓ Hecha</button><button data-check="${key}" data-st="no" data-on="${c.st==="no"?"no":""}" ${due?"":"disabled"}>✗ No</button></div></div>
     ${c.st==="no" ? `<div class="extra"><input type="text" data-why="${key}" value="${esc(c.why||"")}" maxlength="120" placeholder="¿Qué ha pasado? (opcional)" aria-label="Motivo"></div>` : ""}
-    ${c.st==="done" && SCORED.has(k.id) ? `<div class="extra"><label style="font-size:13px;color:var(--muted)">Nota</label><input class="score" type="number" inputmode="decimal" min="0" max="10" step="0.1" data-score="${key}" value="${c.score ?? ""}" placeholder="0–10" aria-label="Nota"></div>` : ""}
+    ${c.st==="done" && SCORED.has(k.id) ? `<div class="extra"><label style="font-size:13px;color:var(--muted)">Nota</label><input class="score" type="text" autocomplete="off" data-score="${key}" value="${c.score ?? ""}" placeholder="−120 a 120" aria-label="Nota (de −120 a 120)"></div>` : ""}
     ${!due ? `<span class="x" style="font-size:12px;color:var(--muted)">Podrás marcarla ese día</span>` : ""}
   </div>`;
 }
@@ -627,8 +629,8 @@ document.addEventListener("change", async e => {
     if ((S.notes[`${sid}__${wk}`]?.note || "") === val) return;
     await write(() => be.set(`notes/${sid}__${wk}`, {studentId:sid, week:wk, note:val})); return; }
   if (t.dataset.why) { await setCheck(t.dataset.why, {st:"no", why:t.value.trim()}); toast("Guardado"); return; }
-  if (t.dataset.score) { let v = t.value === "" ? null : Math.max(0, Math.min(10, Number(t.value.replace(",", "."))));
-    if (v != null && isNaN(v)) v = null; await setCheck(t.dataset.score, {st:"done", score:v}); toast("Nota guardada"); return; }
+  if (t.dataset.score) { let v = t.value === "" ? null : Math.max(SCORE_MIN, Math.min(SCORE_MAX, Number(t.value.trim().replace(",", ".").replace(/[−–]/g, "-"))));
+    if (v != null && isNaN(v)) { toast("Escribe solo un número, por ejemplo 85 o -12,5"); return; } await setCheck(t.dataset.score, {st:"done", score:v}); toast("Nota guardada"); return; }
 });
 
 /* ---------- session dialog ---------- */

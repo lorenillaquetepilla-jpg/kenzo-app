@@ -181,7 +181,7 @@ html,body{min-height:100%}
 .checks button:disabled{opacity:.45;cursor:default}
 .task .extra{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .task .extra input{border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--paper);min-width:0;flex:1}
-.task .extra input.score{flex:0 0 90px}
+.task .extra input.score{flex:0 0 120px}
 .task.future{opacity:.7}
 .install{font-size:13px;color:var(--muted);border-top:1px solid var(--line);margin-top:24px;padding-top:14px}
 
