@@ -50,11 +50,6 @@ function calLabel(id) {
   return {sec,S,G,T,text:`${S?.name ?? "?"} · ${(G?.name ?? "?").replace(/ \(.*\)/,"")} · ${T?.label ?? "?"}`};
 }
 function allCalIds() { const o=[]; for (const s of SECTIONS) for (const g of s.groups) for (const t of TIERS) o.push(calId(s.id,g.id,t.id)); return o; }
-// Access codes stop working after a while, so a code forwarded by mistake does not open the app forever.
-const INV_DAYS = {admin:7, student:30};
-const invExp = v => v.exp || (Date.parse(v.createdAt) || Date.now()) + (INV_DAYS[v.role] || 30) * 864e5;
-const invDead = v => Date.now() > invExp(v);
-const shortDate = ms => new Date(ms).toLocaleDateString("es-ES", {day:"numeric", month:"long"});
 function newCode() { const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let c=""; const r=crypto.getRandomValues(new Uint8Array(8)); for (const x of r) c+=A[x%A.length]; return c; }
 
 function isoWeek(date) {
@@ -169,9 +164,7 @@ function subscribeAdmin() {
   subs.push(be.watchQuery("weeks", [["week",">=",minWeek]], o => { S.weeks=o; render(); }, onErr));
   subs.push(be.watchQuery("notes", [["week",">=",minWeek]], o => { S.notes=o; render(); }, onErr));
   subs.push(be.watchQuery("members", [], o => { S.members=o; render(); }, onErr));
-  // Codes made before they expired get their expiry date counted from when they were created.
-  subs.push(be.watchQuery("invites", [], o => { S.invites=o; render();
-    for (const [c,v] of Object.entries(o)) if (!v.exp) be.merge(`invites/${c}`, {exp:invExp(v)}).catch(e => console.warn(e)); }, onErr));
+  subs.push(be.watchQuery("invites", [], o => { S.invites=o; render(); }, onErr));
 }
 function subscribeStudent(sid) {
   if (!sid) return;
@@ -194,13 +187,13 @@ async function join(code) {
   if (!code) { ui.authErr = "Escribe el código que te ha dado la academia."; render(); return; }
   try {
     const inv = await be.get(`invites/${code}`);
-    if (!inv) { ui.authErr = "Ese código no existe o ya se ha usado. Revísalo con la academia."; render(); return; }
-    if (invDead(inv)) { ui.authErr = "Ese código ha caducado. Pide uno nuevo a la academia."; render(); return; }
+    if (!inv) { ui.authErr = "Ese código no existe. Revísalo con la academia."; render(); return; }
     const m = {role:inv.role, code, email:S.user.email, joinedAt:new Date().toISOString()};
     if (inv.studentId) m.studentId = inv.studentId;
     if (inv.name) m.name = inv.name;
     ui.authErr = "";
-    await be.join(S.user.uid, m, code);
+    await be.set(`members/${S.user.uid}`, m);
+    try { await be.del(`invites/${code}`); } catch (e) { console.warn(e); }
   } catch (e) { ui.authErr = errText(e); render(); }
 }
 
@@ -439,20 +432,19 @@ function monthHtml(id, Sx, T) {
 }
 function studentAccess(stu) {
   const linked = Object.values(S.members).some(m => m.studentId === stu.id);
-  const mine = Object.entries(S.invites).filter(([,v]) => v.studentId === stu.id);
-  const code = mine.find(([,v]) => !invDead(v));
-  return {linked, code:code?.[0], codeExp:code && invExp(code[1]), expired:!code && mine.length > 0};
+  const code = Object.entries(S.invites).find(([,v]) => v.studentId === stu.id)?.[0];
+  return {linked, code};
 }
 function adminStudentCard(stu) {
   const off = ui.weekOff; const st = stats(stu, off); const open = ui.open === stu.id;
-  const {linked, code, codeExp, expired} = studentAccess(stu);
+  const {linked, code} = studentAccess(stu);
   const note = S.notes[`${stu.id}__${weekKey(off)}`]?.note || "";
   let h = `<div class="stu"><div class="top"><span class="name">${esc(stu.name)}</span>
     <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pct ${pctClass(st.pct)}" title="Tareas hechas de las que ya tocaban">${st.pct==null?"sin tareas aún":st.pct+" %"}</span>
     <button class="ghost" data-open="${stu.id}">${open?"Cerrar":"Ver tareas"}</button></span></div>
     <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">${kchips(st.byKind)}
     <span style="font-size:12px;color:var(--muted)">${st.done} hechas · ${st.no} no · ${st.unmarked} sin marcar</span></div>
-    <div class="codebox">${linked ? `<span class="linked">✓ Tiene acceso a la app</span>` : code ? `Código de acceso: <code>${code}</code> <small style="color:var(--muted)">vale hasta el ${shortDate(codeExp)}</small><button class="btn" data-copyinv="${code}" data-name="${esc(stu.name)}">Copiar mensaje para el alumno</button>` : `${expired?`<span style="color:var(--muted)">El código ha caducado.</span> `:""}<button class="btn" data-mkinv="${stu.id}">${expired?"Crear código nuevo":"Crear código de acceso"}</button>`}</div>`;
+    <div class="codebox">${linked ? `<span class="linked">✓ Tiene acceso a la app</span>` : code ? `Código de acceso: <code>${code}</code><button class="btn" data-copyinv="${code}" data-name="${esc(stu.name)}">Copiar mensaje para el alumno</button>` : `<button class="btn" data-mkinv="${stu.id}">Crear código de acceso</button>`}</div>`;
   if (open) {
     h += `<div class="tlist">` + (st.tasks.length ? st.tasks.map(t => {
       const c = st.checks[t.id] || {}; const due = isDue(off,t.d); const k = kindOf(t);
@@ -480,7 +472,7 @@ function teamHtml() {
   let h = `<div class="sechead"><div><h2 style="color:var(--ink)">Accesos</h2><div class="sub">Quién puede entrar en la app</div></div></div>
   <section class="panel"><div class="phead"><h3>Encargadas</h3></div><div class="members">`;
   h += admins.map(([id,m]) => `<div class="mrow"><span><b>${esc(m.name||"Sin nombre")}</b> <small style="color:var(--muted)">${esc(m.email||"")}</small></span>${id===S.user.uid?`<span class="chip">Tú</span>`:`<button class="btn danger" data-rmmem="${id}">Quitar acceso</button>`}</div>`).join("");
-  h += adminInv.map(([code,v]) => `<div class="mrow"><span>Invitación para <b>${esc(v.name)}</b>: <span class="codebox" style="display:inline-flex"><code>${code}</code></span> <small style="color:var(--muted)">${invDead(v)?"caducada":`vale hasta el ${shortDate(invExp(v))}`}</small></span><span style="display:flex;gap:6px"><button class="btn" data-copyinv="${code}" data-name="${esc(v.name)}">Copiar mensaje</button><button class="btn danger" data-rminv="${code}">Anular</button></span></div>`).join("");
+  h += adminInv.map(([code,v]) => `<div class="mrow"><span>Invitación para <b>${esc(v.name)}</b>: <span class="codebox" style="display:inline-flex"><code>${code}</code></span></span><span style="display:flex;gap:6px"><button class="btn" data-copyinv="${code}" data-name="${esc(v.name)}">Copiar mensaje</button><button class="btn danger" data-rminv="${code}">Anular</button></span></div>`).join("");
   h += `</div><form class="addrow" id="addAdmin"><input id="newAdmin" type="text" maxlength="40" placeholder="Nombre de la nueva encargada" aria-label="Nombre de la nueva encargada"><button class="btn primary" type="submit">Crear invitación</button></form></section>
   <section class="panel"><div class="phead"><h3>Alumnos con acceso</h3><span class="chip">${studs.length}</span></div><div class="members">`;
   h += studs.length ? studs.map(([id,m]) => { const st = S.students[m.studentId]; return `<div class="mrow"><span><b>${esc(st?.name || "Alumno eliminado")}</b> <small style="color:var(--muted)">${esc(m.email||"")}</small></span><button class="btn danger" data-rmmem="${id}">Quitar acceso</button></div>`; }).join("")
@@ -595,7 +587,7 @@ async function copy(text, okMsg) {
   try { await navigator.clipboard.writeText(text); toast(okMsg); }
   catch (e) { const ta=document.createElement("textarea"); ta.value=text; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); toast(okMsg); } catch(_) { toast("No se pudo copiar"); } ta.remove(); }
 }
-async function makeInvite(data) { const code = newCode(); try { await be.set(`invites/${code}`, {...data, createdAt:new Date().toISOString(), exp:Date.now() + INV_DAYS[data.role] * 864e5}); return code; } catch (e) { console.warn(e); toast(errText(e)); return null; } }
+async function makeInvite(data) { const code = newCode(); try { await be.set(`invites/${code}`, {...data, createdAt:new Date().toISOString()}); return code; } catch (e) { console.warn(e); toast(errText(e)); return null; } }
 
 document.addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -629,9 +621,7 @@ document.addEventListener("click", async e => {
   if (b.dataset.check) { const cur = stats(S.students[b.dataset.check.split("|")[0]] || S.me, Number(b.dataset.check.split("|")[1])).checks[b.dataset.check.split("|")[2]] || {};
     await setCheck(b.dataset.check, {st: cur.st === b.dataset.st ? null : b.dataset.st}); return; }
   if (b.dataset.open) { ui.open = ui.open === b.dataset.open ? null : b.dataset.open; ui.confirmDel = null; render(true); return; }
-  if (b.dataset.mkinv) { const sid = b.dataset.mkinv;
-    for (const [c,v] of Object.entries(S.invites)) if (v.studentId === sid) await be.del(`invites/${c}`).catch(e => console.warn(e));
-    await makeInvite({role:"student", studentId:sid}); return; }
+  if (b.dataset.mkinv) { await makeInvite({role:"student", studentId:b.dataset.mkinv}); return; }
   if (b.dataset.copyinv) { await copy(inviteMessage(b.dataset.copyinv, b.dataset.name), "Mensaje copiado. Pégalo en WhatsApp o en un email."); return; }
   if (b.dataset.rminv) { await write(() => be.del(`invites/${b.dataset.rminv}`)); return; }
   if (b.dataset.rmmem) { await write(() => be.del(`members/${b.dataset.rmmem}`)); toast("Acceso quitado"); return; }
