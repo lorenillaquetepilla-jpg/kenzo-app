@@ -8,7 +8,10 @@ service cloud.firestore {
     function isAdmin() { return isMember() && me().role == 'admin'; }
     function myStudent() { return me().get('studentId', ''); }
     function setupPath() { return /databases/$(database)/documents/config/setup; }
-    function invite(code) { return get(/databases/$(database)/documents/invites/$(code)).data; }
+    function invitePath(code) { return /databases/$(database)/documents/invites/$(code); }
+    function invite(code) { return get(invitePath(code)).data; }
+    // A code is valid until its expiry date; codes made before expiry existed have none.
+    function inviteAlive(code) { return !('exp' in invite(code)) || request.time.toMillis() < invite(code).exp; }
 
     // First person to configure the academy becomes its director.
     match /config/setup {
@@ -23,18 +26,20 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == uid && (
         (request.resource.data.role == 'admin' && !exists(setupPath()) && existsAfter(setupPath()))
         || (request.resource.data.keys().hasAll(['code', 'role'])
-            && exists(/databases/$(database)/documents/invites/$(request.resource.data.code))
+            && exists(invitePath(request.resource.data.code))
+            && !existsAfter(invitePath(request.resource.data.code))
+            && inviteAlive(request.resource.data.code)
             && invite(request.resource.data.code).role == request.resource.data.role
             && invite(request.resource.data.code).get('studentId', '') == request.resource.data.get('studentId', ''))
       );
       allow update, delete: if isAdmin();
     }
 
-    // A code works once: whoever used it deletes it right after joining.
+    // A code works once: joining deletes it in the same step.
     match /invites/{code} {
       allow get: if signedIn();
       allow list, write: if isAdmin();
-      allow delete: if isMember() && me().get('code', '') == code;
+      allow delete: if signedIn() && getAfter(memberPath()).data.get('code', '') == code;
     }
 
     match /calendars/{id} {
@@ -56,6 +61,8 @@ service cloud.firestore {
     match /weeks/{id} {
       allow read: if isAdmin() || (isMember() && resource.data.studentId == myStudent());
       allow create, update: if isAdmin() || (isMember() && myStudent() != ''
+        && request.resource.data.keys().hasOnly(['studentId', 'week', 'checks'])
+        && request.resource.data.checks is map
         && request.resource.data.studentId == myStudent()
         && id == myStudent() + '__' + request.resource.data.week
         && (resource == null || resource.data.studentId == myStudent()));

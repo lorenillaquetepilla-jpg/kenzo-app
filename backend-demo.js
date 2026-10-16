@@ -95,5 +95,6 @@ export default {
   async set(p, v) { data[p] = clone(v); notify(); },
   async merge(p, v) { data[p] = deepMerge(data[p], clone(v)); notify(); },
   async del(p) { delete data[p]; notify(); },
+  async join(uid, member, code) { data["members/" + uid] = clone(member); delete data["invites/" + code]; notify(); },
   async bootstrap(uid, member) { data["members/" + uid] = member; data["config/setup"] = { by: uid }; notify(); }
 };

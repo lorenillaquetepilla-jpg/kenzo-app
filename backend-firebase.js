@@ -28,6 +28,13 @@ export function makeBackend(cfg) {
     set: (p, data) => F.setDoc(d(p), data),
     merge: (p, data) => F.setDoc(d(p), data, { merge: true }),
     del: p => F.deleteDoc(d(p)),
+    // Joining and spending the code happen together: the rules only accept a code that disappears as it is used.
+    join: async (uid, member, code) => {
+      const b = F.writeBatch(fs);
+      b.set(d("members/" + uid), member);
+      b.delete(d("invites/" + code));
+      await b.commit();
+    },
     bootstrap: async (uid, member) => {
       const b = F.writeBatch(fs);
       b.set(d("members/" + uid), member);
