@@ -24,6 +24,7 @@ export function makeBackend(cfg) {
     watchQuery: (c, filters, cb, err) =>
       F.onSnapshot(F.query(F.collection(fs, c), ...filters.map(f => F.where(...f))),
         s => { const o = {}; s.forEach(x => o[x.id] = x.data()); cb(o); }, err),
+    getAll: async c => { const s = await F.getDocs(F.collection(fs, c)); const o = {}; s.forEach(x => o[x.id] = x.data()); return o; },
     set: (p, data) => F.setDoc(d(p), data),
     merge: (p, data) => F.setDoc(d(p), data, { merge: true }),
     del: p => F.deleteDoc(d(p)),

@@ -91,6 +91,7 @@ export default {
     };
     listeners.add(l); setTimeout(l, 0); return () => listeners.delete(l);
   },
+  async getAll(c) { const o = {}; for (const [k, v] of Object.entries(data)) if (k.startsWith(c + "/") && k.indexOf("/", c.length + 1) === -1) o[k.slice(c.length + 1)] = clone(v); return o; },
   async set(p, v) { data[p] = clone(v); notify(); },
   async merge(p, v) { data[p] = deepMerge(data[p], clone(v)); notify(); },
   async del(p) { delete data[p]; notify(); },
