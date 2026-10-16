@@ -475,7 +475,45 @@ function teamHtml() {
   <section class="panel"><div class="phead"><h3>Alumnos con acceso</h3><span class="chip">${studs.length}</span></div><div class="members">`;
   h += studs.length ? studs.map(([id,m]) => { const st = S.students[m.studentId]; return `<div class="mrow"><span><b>${esc(st?.name || "Alumno eliminado")}</b> <small style="color:var(--muted)">${esc(m.email||"")}</small></span><button class="btn danger" data-rmmem="${id}">Quitar acceso</button></div>`; }).join("")
     : `<div class="empty">Ningún alumno ha entrado todavía. Sus códigos están en la ficha de cada alumno, dentro de su calendario.</div>`;
-  return h + `</div></section>`;
+  return h + `</div></section>` + backupHtml();
+}
+
+/* ---- admin: backup ---- */
+// Everything the encargada can read, so a lost or broken calendar can be put back from a file.
+const BACKUP_COLS = ["calendars","students","weeks","extras","notes","invites","members"];
+const RESTORE_COLS = ["calendars","students","weeks","extras","notes","invites"];
+function lastBackup() { try { return localStorage.getItem("kenzo-backup-at"); } catch(e) { return null; } }
+function backupHtml() {
+  const last = lastBackup(); const days = last ? Math.floor((Date.now()-new Date(last))/864e5) : null;
+  return `<section class="panel"><div class="phead"><h3>Copia de seguridad</h3></div>
+    <p style="margin:0 0 12px;color:var(--muted);font-size:14px">Descarga un archivo con todos los calendarios, alumnos y tareas marcadas. Guárdalo en tu ordenador o en Drive. Recomendado: una vez a la semana.</p>
+    <p style="margin:0 0 12px;font-size:14px${days==null||days>=7?";color:var(--warn)":""}">${last?`Última copia desde este dispositivo: ${ago(last)}`:"Todavía no has descargado ninguna copia desde este dispositivo."}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="dlBackup">Descargar copia</button><button class="btn" id="restoreBtn">Recuperar desde una copia</button></div></section>`;
+}
+async function downloadBackup() {
+  toast("Preparando la copia…");
+  try {
+    const data = {};
+    for (const c of BACKUP_COLS) data[c] = await be.getAll(c);
+    const at = new Date().toISOString();
+    const blob = new Blob([JSON.stringify({app:"agenda-kenzo", version:1, at, data}, null, 1)], {type:"application/json"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `copia-kenzo-${at.slice(0,10)}.json`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+    try { localStorage.setItem("kenzo-backup-at", at); } catch(e) {}
+    const n = Object.values(data).reduce((t,o) => t + Object.keys(o).length, 0);
+    render(true); toast(`Copia descargada (${n} registros)`);
+  } catch (e) { console.warn(e); toast(errText(e)); }
+}
+async function restoreBackup(file) {
+  let b; try { b = JSON.parse(await file.text()); } catch(e) { b = null; }
+  if (b?.app !== "agenda-kenzo" || !b.data) { toast("Ese archivo no es una copia de Agenda Kenzo"); return; }
+  const when = new Date(b.at).toLocaleString("es-ES", {day:"numeric", month:"long", year:"numeric", hour:"2-digit", minute:"2-digit"});
+  if (!confirm(`¿Recuperar la copia del ${when}?\n\nLos calendarios, alumnos y tareas volverán a como estaban ese día. Lo que se haya creado después se mantiene.`)) return;
+  toast("Recuperando… no cierres la app");
+  let n = 0, fail = 0;
+  for (const c of RESTORE_COLS) for (const [id, v] of Object.entries(b.data[c] || {})) {
+    try { await be.set(`${c}/${id}`, v); n++; } catch(e) { console.warn(e); fail++; }
+  }
+  toast(fail ? `Recuperados ${n} registros; ${fail} no se pudieron recuperar` : `Copia recuperada (${n} registros)`);
 }
 
 /* ---- admin: report ---- */
@@ -596,6 +634,9 @@ document.addEventListener("click", async e => {
       for (const [mid,m] of Object.entries(S.members)) if (m.studentId === id) await be.del(`members/${mid}`);
       await be.del(`students/${id}`);
     }); toast("Alumno eliminado"); return; }
+  if (b.id === "dlBackup") { await downloadBackup(); return; }
+  if (b.id === "restoreBtn") { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".json,application/json";
+    inp.onchange = () => inp.files[0] && restoreBackup(inp.files[0]); inp.click(); return; }
   if (b.id === "copyRep") { await copy(reportText(), "Informe copiado"); return; }
   if (b.id === "dlRep") { const blob = new Blob(["﻿"+reportCsv()], {type:"text/csv;charset=utf-8"}); const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = `informe-kenzo-${weekKey(0)}.csv`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000); return; }
