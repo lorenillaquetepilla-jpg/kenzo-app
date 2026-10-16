@@ -38,6 +38,8 @@ const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","A
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// Students write their own checks, so only the two known states ever reach a class name.
+const stOk = st => st === "done" || st === "no" ? st : "";
 const uid = () => Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4);
 const mins = t => { const [h,m] = t.split(":").map(Number); return h*60 + m; };
 const hrs = n => (Math.round(n*10)/10).toLocaleString("es-ES");
@@ -112,7 +114,7 @@ function getCal(id) {
 // Times are optional: a session without them counts as a task for the day, with no hours.
 const dur = s => s.s && s.e ? Math.max(0, mins(s.e)-mins(s.s))/60 : 0;
 const tkey = s => s.s ? mins(s.s) : 1e9;
-const tm = s => s.s ? (s.e ? `${s.s}–${s.e}` : s.s) : "";
+const tm = s => esc(s.s ? (s.e ? `${s.s}–${s.e}` : s.s) : "");
 function dayHours(sessions) { const h=[0,0,0,0,0,0,0]; for (const s of sessions) h[s.d]+=dur(s); return h; }
 
 /* ---------- state ---------- */
@@ -307,8 +309,8 @@ function studentMonthHtml(stu) {
     const date = new Date(M.y, M.m, n, 12); const key = ymd(date); const wd = wdOf(date);
     const list = stuDay(stu, key, wd).slice().sort((a,b)=>tkey(a)-tkey(b));
     const checks = S.weeks[`${stu.id}__${isoWeek(date)}`]?.checks || {};
-    h += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""}"><button class="dsel ${key===sel?"on":""}" data-sel="${key}" aria-label="Ver el ${n}"><b>${n}</b><i>${list.map(t=>`<u class="${checks[t.id]?.st||""}" style="--k:${kindOf(t).c}"></u>`).join("")}</i></button><span class="dnum"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span></span>
-      ${list.map(t=>{ const st = checks[t.id]?.st; return `<span class="pill ${st||""}" style="--k:${kindOf(t).c}">${st==="done"?"✓ ":st==="no"?"✗ ":""}${t.s?`<span class="t">${t.s}</span> `:""}${esc(t.t||kindOf(t).name)}</span>`; }).join("")}
+    h += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""}"><button class="dsel ${key===sel?"on":""}" data-sel="${key}" aria-label="Ver el ${n}"><b>${n}</b><i>${list.map(t=>`<u class="${stOk(checks[t.id]?.st)}" style="--k:${kindOf(t).c}"></u>`).join("")}</i></button><span class="dnum"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span></span>
+      ${list.map(t=>{ const st = checks[t.id]?.st; return `<span class="pill ${stOk(st)}" style="--k:${kindOf(t).c}">${st==="done"?"✓ ":st==="no"?"✗ ":""}${t.s?`<span class="t">${esc(t.s)}</span> `:""}${esc(t.t||kindOf(t).name)}</span>`; }).join("")}
       ${list.length ? "" : `<span class="rest">Libre</span>`}</div>`;
   }
   { const [y,m,d] = sel.split("-").map(Number); const dt = new Date(y,m-1,d,12);
@@ -343,7 +345,7 @@ function taskCard(stu, off, t, c) {
     <div class="row"><div class="info">${t.s?`<span class="t">${tm(t)}</span>`:""}<span class="k">${k.name}</span><span class="s">${esc(t.t || k.name)}</span></div>
     <div class="checks"><button data-check="${key}" data-st="done" data-on="${c.st==="done"?"done":""}" ${due?"":"disabled"}>✓ Hecha</button><button data-check="${key}" data-st="no" data-on="${c.st==="no"?"no":""}" ${due?"":"disabled"}>✗ No</button></div></div>
     ${c.st==="no" ? `<div class="extra"><input type="text" data-why="${key}" value="${esc(c.why||"")}" maxlength="120" placeholder="¿Qué ha pasado? (opcional)" aria-label="Motivo"></div>` : ""}
-    ${c.st==="done" && SCORED.has(k.id) ? `<div class="extra"><label style="font-size:13px;color:var(--muted)">Nota</label><input class="score" type="text" autocomplete="off" data-score="${key}" value="${c.score ?? ""}" placeholder="−120 a 120" aria-label="Nota (de −120 a 120)"></div>` : ""}
+    ${c.st==="done" && SCORED.has(k.id) ? `<div class="extra"><label style="font-size:13px;color:var(--muted)">Nota</label><input class="score" type="text" autocomplete="off" data-score="${key}" value="${esc(c.score ?? "")}" placeholder="−120 a 120" aria-label="Nota (de −120 a 120)"></div>` : ""}
     ${!due ? `<span class="x" style="font-size:12px;color:var(--muted)">Podrás marcarla ese día</span>` : ""}
   </div>`;
 }
@@ -393,7 +395,7 @@ function dayViewHtml(key, list, editable, checks) {
   return `<div class="dayview"><div class="dvhead"><h4>${longDate(key)}</h4>${editable?`<button class="btn" data-dayopt="${key}">Opciones</button>`:""}</div>
     ${list.length ? list.map(t => { const st = checks?.[t.id]?.st; const k = kindOf(t);
       const inner = `${t.s?`<span class="t">${tm(t)}</span>`:""}<span class="k">${k.name}</span><span class="s">${st==="done"?"✓ ":st==="no"?"✗ ":""}${esc(t.t||k.name)}</span>`;
-      return editable ? `<button class="sess" style="--k:${k.c}" data-dsess="${key}|${t.id}">${inner}</button>` : `<div class="sess ${st||""}" style="--k:${k.c}">${inner}</div>`; }).join("") : `<div class="rest">Día libre</div>`}
+      return editable ? `<button class="sess" style="--k:${k.c}" data-dsess="${key}|${t.id}">${inner}</button>` : `<div class="sess ${stOk(st)}" style="--k:${k.c}">${inner}</div>`; }).join("") : `<div class="rest">Día libre</div>`}
     ${editable?`<button class="add" data-dadd="${key}">+ Añadir sesión</button>`:""}</div>`;
 }
 function monthHtml(id, Sx, T) {
@@ -417,7 +419,7 @@ function monthHtml(id, Sx, T) {
     html += `<div class="mday ${key===today?"today":""} ${wd>4?"wkend":""} ${changed?"changed":""}">
       <button class="dsel ${key===sel?"on":""}" data-sel="${key}" aria-label="Ver el ${n} de ${MONTH_NAMES[M.m]}"><b>${n}</b><i>${list.map(s=>`<u style="--k:${kindOf(s).c}"></u>`).join("")}</i></button>
       <button class="dnum" data-dayopt="${key}" aria-label="Opciones del ${n} de ${MONTH_NAMES[M.m]}"><b>${n}</b><span class="wdl">${DAYS_L[wd]}</span>${tot?`<small>${hrs(tot)} h</small>`:""}</button>
-      ${list.map(s=>`<button class="pill" style="--k:${kindOf(s).c}" data-dsess="${key}|${s.id}">${s.s?`<span class="t">${s.s}</span> `:""}${esc(s.t||kindOf(s).name)}</button>`).join("")}
+      ${list.map(s=>`<button class="pill" style="--k:${kindOf(s).c}" data-dsess="${key}|${s.id}">${s.s?`<span class="t">${esc(s.s)}</span> `:""}${esc(s.t||kindOf(s).name)}</button>`).join("")}
       ${list.length ? "" : `<span class="rest">Libre</span>`}
       <button class="dadd" data-dadd="${key}" aria-label="Añadir sesión el ${n}">+</button></div>`;
   }
@@ -446,10 +448,10 @@ function adminStudentCard(stu) {
   if (open) {
     h += `<div class="tlist">` + (st.tasks.length ? st.tasks.map(t => {
       const c = st.checks[t.id] || {}; const due = isDue(off,t.d); const k = kindOf(t);
-      const stTxt = c.st==="done" ? `✓ Hecha${c.score!=null&&c.score!==""?` · ${c.score}`:""}` : c.st==="no" ? "✗ No" : due ? "Sin marcar" : "Pendiente";
-      return `<div class="trow" style="--k:${k.c}"><span class="st ${c.st||"pend"}">${DAYS[t.d]}${t.s?" "+t.s:""}</span>
+      const stTxt = c.st==="done" ? `✓ Hecha${c.score!=null&&c.score!==""?` · ${esc(c.score)}`:""}` : c.st==="no" ? "✗ No" : due ? "Sin marcar" : "Pendiente";
+      return `<div class="trow" style="--k:${k.c}"><span class="st ${stOk(c.st)||"pend"}">${DAYS[t.d]}${t.s?" "+esc(t.s):""}</span>
         <span>${esc(t.t||k.name)} <small>· ${k.name}${t.src==="own"?" · solo para este alumno":""}${c.why?` · «${esc(c.why)}»`:""}</small></span>
-        <span style="display:flex;gap:6px;align-items:center"><span class="st ${c.st||"pend"}">${stTxt}</span></span></div>`;
+        <span style="display:flex;gap:6px;align-items:center"><span class="st ${stOk(c.st)||"pend"}">${stTxt}</span></span></div>`;
     }).join("") : `<div class="empty">No hay tareas esta semana.</div>`) + `</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-planfor="${stu.id}">Planificar el año de ${esc(stu.name.split(" ")[0])}</button></div>
       <textarea data-note="${stu.id}" placeholder="Nota privada de la semana (el alumno no la ve)">${esc(note)}</textarea>`;
@@ -548,7 +550,7 @@ function reportHtml() {
     <td class="num"><span class="pct ${pctClass(c.pct)}">${c.pct==null?"—":c.pct+" %"}</span><br><small style="color:var(--muted)">${c.done}/${c.due} hechas${c.unmarked?` · ${c.unmarked} sin marcar`:""}</small></td>
     <td>${kchips(r.byKind4)}</td>
     <td><div class="spark" title="${r.hist.map(v=>v==null?"—":v+"%").join(" · ")}">${r.hist.map((v,i)=>`<i class="${i===3?"cur":""}" style="height:${v==null?2:Math.max(3,v/100*26)}px"></i>`).join("")}</div><small style="color:var(--muted)">media ${r.avg==null?"—":r.avg+" %"}</small></td>
-    <td class="num">${r.lastScore?`${r.lastScore.score}<br><small style="color:var(--muted)">${esc(r.lastScore.t.t||kindOf(r.lastScore.t).name)}</small>`:"—"}</td>
+    <td class="num">${r.lastScore?`${esc(r.lastScore.score)}<br><small style="color:var(--muted)">${esc(r.lastScore.t.t||kindOf(r.lastScore.t).name)}</small>`:"—"}</td>
     <td class="${stale?"risk":""}" style="font-size:13px">${ago(r.last)}</td>
     <td style="max-width:240px;color:var(--muted);font-size:13px">${esc(r.note)}</td></tr>`; }).join("");
   return h + `</tbody></table></div></section>`;
