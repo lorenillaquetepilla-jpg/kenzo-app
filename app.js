@@ -10,8 +10,7 @@ const DAYS_L = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domi
 const SECTIONS = [
   {id:"panda",name:"Panda",sub:"Grupo de iniciados",groups:[{id:"ini",name:"Iniciados"}]},
   {id:"koi",name:"Dragón",sub:"Alumnos antiguos · grupo avanzado",groups:[{id:"av",name:"Avanzados"}]},
-  {id:"bonsai",name:"Tora",sub:"Equipo con dos grupos",groups:[{id:"av",name:"Avanzados"},{id:"ini",name:"Iniciados (nuevos)"}]},
-  {id:"bambu",name:"Bambú",sub:"Un solo calendario",single:true,groups:[{id:"uno",name:"Bambú"}]}
+  {id:"bonsai",name:"Tora",sub:"Equipo con dos grupos",groups:[{id:"av",name:"Avanzados"},{id:"ini",name:"Iniciados (nuevos)"}]}
 ];
 const TIERS = [
   {id:"2",label:"2 h",min:2,max:2},
@@ -19,10 +18,6 @@ const TIERS = [
   {id:"56",label:"5–6 h",min:5,max:6},
   {id:"78",label:"7–8 h",min:7,max:8}
 ];
-// Bambú has one calendar, with no split by hours.
-const ONE_TIER = {id:"1",label:"",min:0,max:99};
-const tiersOf = Sx => Sx?.single ? [ONE_TIER] : TIERS;
-const defTier = Sx => tiersOf(Sx)[0].id;
 const KINDS = [
   {id:"materia",name:"Materia",c:"var(--panda)"},
   {id:"repaso",name:"Repaso",c:"var(--bonsai)"},
@@ -34,7 +29,7 @@ const SCORED = new Set(["test","examen"]);
 // Test and exam marks: up to 120, negative allowed for the penalty on wrong answers.
 const SCORE_MIN = -120, SCORE_MAX = 120;
 const kindOf = s => KINDS.find(k => k.id === s.k) || KINDS[0];
-const SEC_COLOR = {panda:"var(--panda)",koi:"var(--koi)",bonsai:"var(--bonsai)",bambu:"var(--bambu)"};
+const SEC_COLOR = {panda:"var(--panda)",koi:"var(--koi)",bonsai:"var(--bonsai)"};
 const HISTORY_WEEKS = 8;
 // The course runs month by month from November 2026 to October 2027.
 const MONTHS = Array.from({length:12}, (_,i) => ({y:2026+Math.floor((10+i)/12), m:(10+i)%12}));
@@ -51,11 +46,10 @@ const hrs = n => (Math.round(n*10)/10).toLocaleString("es-ES");
 const calId = (sec,grp,tier) => `${sec}-${grp}-${tier}`;
 function calLabel(id) {
   const [sec,grp,tier] = String(id).split("-");
-  const S = SECTIONS.find(s => s.id === sec), G = S?.groups.find(g => g.id === grp), T = tiersOf(S).find(t => t.id === tier);
-  if (S?.single) return {sec,S,G,T,text:S.name};
+  const S = SECTIONS.find(s => s.id === sec), G = S?.groups.find(g => g.id === grp), T = TIERS.find(t => t.id === tier);
   return {sec,S,G,T,text:`${S?.name ?? "?"} · ${(G?.name ?? "?").replace(/ \(.*\)/,"")} · ${T?.label ?? "?"}`};
 }
-function allCalIds() { const o=[]; for (const s of SECTIONS) for (const g of s.groups) for (const t of tiersOf(s)) o.push(calId(s.id,g.id,t.id)); return o; }
+function allCalIds() { const o=[]; for (const s of SECTIONS) for (const g of s.groups) for (const t of TIERS) o.push(calId(s.id,g.id,t.id)); return o; }
 function newCode() { const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let c=""; const r=crypto.getRandomValues(new Uint8Array(8)); for (const x of r) c+=A[x%A.length]; return c; }
 
 function isoWeek(date) {
@@ -95,7 +89,6 @@ function errText(e) {
 /* ---------- calendars ---------- */
 function template(tierId) {
   const B = {
-    "1":[["","","Temario","materia"]],
     "2":[["17:00","19:00","Temario","materia"]],
     "34":[["09:30","11:30","Temario","materia"],["16:00","18:00","Repaso del día","repaso"]],
     "56":[["09:00","12:00","Temario","materia"],["16:00","18:00","Repaso del día","repaso"],["18:00","19:00","Test del tema","test"]],
@@ -126,7 +119,7 @@ function dayHours(sessions) { const h=[0,0,0,0,0,0,0]; for (const s of sessions)
 
 /* ---------- state ---------- */
 const S = {user:null, member:undefined, setupExists:null, calendars:{}, students:{}, weeks:{}, extras:{}, notes:{}, members:{}, invites:{}, me:null};
-const ui = {tab:"panda", group:{panda:"ini",koi:"av",bonsai:"av",bambu:"uno"}, tier:{}, weekOff:0, open:null, confirmDel:null, authMode:"in", authMsg:"", authErr:"", month:monthIdxNow(), mode:"month", planFor:null, view:"week"};
+const ui = {tab:"panda", group:{panda:"ini",koi:"av",bonsai:"av"}, tier:{}, weekOff:0, open:null, confirmDel:null, authMode:"in", authMsg:"", authErr:"", month:monthIdxNow(), mode:"month", planFor:null, view:"week"};
 try { const s=JSON.parse(localStorage.getItem("kenzo-ui")||"{}"); if (s.tab) ui.tab=s.tab; if (s.group) Object.assign(ui.group,s.group); if (s.tier) ui.tier=s.tier; } catch(e) {}
 const saveUi = () => { try { localStorage.setItem("kenzo-ui",JSON.stringify({tab:ui.tab,group:ui.group,tier:ui.tier})); } catch(e) {} };
 
@@ -361,18 +354,16 @@ function weekNav(maxAhead) {
 }
 
 /* ---- admin: section ---- */
-function currentCalId() { const Sx=SECTIONS.find(s=>s.id===ui.tab); const g=ui.group[Sx.id]; return calId(Sx.id,g,ui.tier[`${Sx.id}-${g}`]||defTier(Sx)); }
+function currentCalId() { const Sx=SECTIONS.find(s=>s.id===ui.tab); const g=ui.group[Sx.id]; return calId(Sx.id,g,ui.tier[`${Sx.id}-${g}`]||"2"); }
 function sectionHtml() {
   const Sx = SECTIONS.find(s=>s.id===ui.tab) || SECTIONS[0]; const g = ui.group[Sx.id];
-  const tier = Sx.single ? defTier(Sx) : ui.tier[`${Sx.id}-${g}`] || "2"; const id = calId(Sx.id,g,tier); const T = tiersOf(Sx).find(t=>t.id===tier);
+  const tier = ui.tier[`${Sx.id}-${g}`] || "2"; const id = calId(Sx.id,g,tier); const T = TIERS.find(t=>t.id===tier);
   const {sessions,isTemplate} = getCal(id);
   let html = `<div class="sechead"><div><h2>${Sx.name}</h2><div class="sub">${Sx.sub}</div></div>`;
   if (Sx.groups.length>1) html += `<div class="seg" role="group" aria-label="Grupo">${Sx.groups.map(G=>`<button data-group="${G.id}" aria-pressed="${G.id===g}">${G.name}</button>`).join("")}</div>`;
-  html += `</div>`;
-  if (!Sx.single) html += `<div class="tiers" role="group" aria-label="Horas de estudio al día">${TIERS.map(t=>{
+  html += `</div><div class="tiers" role="group" aria-label="Horas de estudio al día">${TIERS.map(t=>{
     const n = Object.values(S.students).filter(s=>s.calId===calId(Sx.id,g,t.id)).length;
     return `<button data-tier="${t.id}" aria-pressed="${t.id===tier}"><b>${t.label}</b><span>al día · ${n} ${n===1?"alumno":"alumnos"}</span></button>`}).join("")}</div>`;
-  else { const n = Object.values(S.students).filter(s=>s.calId===id).length; html += `<p class="sub" style="margin:0 0 12px">Calendario único · ${n} ${n===1?"alumno":"alumnos"}</p>`; }
   html += ui.mode === "base" && !ui.planFor ? baseWeekHtml(id, T, sessions, isTemplate) : monthHtml(id, Sx, T);
 
   const studs = Object.values(S.students).filter(s=>s.calId===id).sort((a,b)=>a.name.localeCompare(b.name,"es"));
@@ -384,7 +375,7 @@ function sectionHtml() {
 }
 function baseWeekHtml(id, T, sessions, isTemplate) {
   const h = dayHours(sessions); const week = h.reduce((a,b)=>a+b,0);
-  let html = `<section class="panel"><div class="phead"><h3>Semana tipo${T.label?` · ${esc(T.label)} al día`:""}</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  let html = `<section class="panel"><div class="phead"><h3>Semana tipo · ${esc(T.label)} al día</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     ${isTemplate?`<span class="chip">Plantilla sugerida</span>`:""}<span class="chip">${hrs(week)} h / semana</span><button class="btn" data-striphours="1">Quitar todas las horas</button><button class="btn" data-mode="month">Volver al calendario</button></div></div>
     <p class="hint" style="margin:0 0 12px;font-size:13px;color:var(--muted)">La semana tipo rellena todos los días del curso que no hayas cambiado a mano.</p><div class="week">`;
   for (let d=0; d<7; d++) {
@@ -415,7 +406,7 @@ function monthHtml(id, Sx, T) {
   let html = `<section class="panel cal">`;
   if (stu) html += `<div class="planfor"><span>Estás planificando solo para <b>${esc(stu.name)}</b>. Lo que cambies aquí no afecta al resto del grupo.</span><button class="btn" data-planexit="1">Volver al calendario del grupo</button></div>`;
   html += `<div class="monthbar"><button class="mnav" data-mo="-1" aria-label="Mes anterior" ${ui.month<=0?"disabled":""}>‹</button>
-    <h3 class="mtitle">${MONTH_NAMES[M.m]} ${M.y}<span>${esc(stu ? stu.name : Sx.single ? Sx.name : `${Sx.name} · ${lab.G.name.replace(/ \(.*\)/,"")}`)}${T.label?` · ${esc(T.label)}`:""}</span></h3>
+    <h3 class="mtitle">${MONTH_NAMES[M.m]} ${M.y}<span>${esc(stu ? stu.name : `${Sx.name} · ${lab.G.name.replace(/ \(.*\)/,"")}`)} · ${esc(T.label)}</span></h3>
     <button class="mnav" data-mo="1" aria-label="Mes siguiente" ${ui.month>=MONTHS.length-1?"disabled":""}>›</button></div>
     <div class="mchips" role="group" aria-label="Meses del curso">${MONTHS.map((x,i)=>`<button data-month="${i}" aria-pressed="${i===ui.month}">${MONTH_NAMES[x.m].slice(0,3)}</button>`).join("")}</div>
     <div class="mgrid"><div class="mhead">${DAYS_L.map((d,i)=>`<span><span class="lg">${d}</span><span class="sh">${DAYS[i]}</span></span>`).join("")}</div><div class="mdays">`;
@@ -570,7 +561,7 @@ function reportText() {
     const rs = rows.filter(r => r.lab.sec === Sx.id); if (!rs.length) continue; lines.push(Sx.name.toUpperCase());
     for (const r of rs) {
       const kinds = Object.entries(r.cur.byKind).map(([k,v]) => `${KINDS.find(x=>x.id===k)?.name.split(" ")[0]} ${v.done}/${v.due}`).join(", ");
-      lines.push(`- ${r.stu.name} (${r.lab.S?.single ? r.lab.S.name : `${r.lab.G.name.replace(/ \(.*\)/,"")}, ${r.lab.T.label}/día`}): ${r.cur.pct==null?"sin tareas aún":r.cur.pct+"%"} esta semana (${r.cur.done}/${r.cur.due} hechas${kinds?`; ${kinds}`:""}); media 4 sem. ${r.avg==null?"—":r.avg+"%"}${r.lastScore?`; última nota ${r.lastScore.score}`:""}; marcó por última vez ${ago(r.last)}${r.note?`. Nota: ${r.note}`:""}`);
+      lines.push(`- ${r.stu.name} (${r.lab.G.name.replace(/ \(.*\)/,"")}, ${r.lab.T.label}/día): ${r.cur.pct==null?"sin tareas aún":r.cur.pct+"%"} esta semana (${r.cur.done}/${r.cur.due} hechas${kinds?`; ${kinds}`:""}); media 4 sem. ${r.avg==null?"—":r.avg+"%"}${r.lastScore?`; última nota ${r.lastScore.score}`:""}; marcó por última vez ${ago(r.last)}${r.note?`. Nota: ${r.note}`:""}`);
     }
     lines.push("");
   }
