@@ -71,6 +71,9 @@ function dateOf(off,d) { const m=mondayFor(off); m.setDate(m.getDate()+d); retur
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const isDue = (off,d) => ymd(dateOf(off,d)) <= ymd(new Date());
 const isToday = (off,d) => ymd(dateOf(off,d)) === ymd(new Date());
+// Students who are ahead may tick «Hecha» on any day of this week and the next MARK_AHEAD_WEEKS whole weeks.
+const MARK_AHEAD_WEEKS = 2;
+const canMarkAhead = off => off <= MARK_AHEAD_WEEKS;
 function ago(iso) {
   if (!iso) return "nunca";
   const days = Math.floor((Date.now()-new Date(iso))/864e5);
@@ -331,7 +334,7 @@ function studentWeekHtml(stu) {
   let h = `<div class="me-head"><div><h2>Hola, ${esc(first)}</h2><div class="sub">${esc(lab.text)} al día</div></div>
     <div class="ring" style="--p:${st.pct??0};--ring:${st.pct==null?"var(--soft)":st.pct>=80?"var(--ok)":st.pct>=60?"var(--warn)":"var(--bad)"}" title="Tareas completadas esta semana"><b>${st.pct==null?"—":st.pct+"%"}</b></div></div>
     <section class="panel"><div class="phead"><h3>Mis tareas</h3>${weekNav(1)}</div>
-    <p class="hint" style="margin:0 0 14px;color:var(--muted);font-size:13px">Marca cada tarea cuando acabe el día: <b>Hecha</b> o <b>No</b>. Paula ve tu progreso en sus informes.</p><div class="daylist">`;
+    <p class="hint" style="margin:0 0 14px;color:var(--muted);font-size:13px">Marca cada tarea cuando acabe el día: <b>Hecha</b> o <b>No</b>. Si vas adelantado, puedes marcar como <b>Hecha</b> tareas de las próximas dos semanas. Paula ve tu progreso en sus informes.</p><div class="daylist">`;
   let any = false;
   for (let d=0; d<7; d++) {
     const list = st.tasks.filter(t => t.d === d); if (!list.length) continue; any = true;
@@ -346,14 +349,14 @@ function studentWeekHtml(stu) {
   return h;
 }
 function taskCard(stu, off, t, c) {
-  const k = kindOf(t); const due = isDue(off, t.d);
+  const k = kindOf(t); const due = isDue(off, t.d); const ahead = !due && canMarkAhead(off);
   const key = `${stu.id}|${off}|${t.id}`;
   return `<div class="task ${due?"":"future"}" style="--k:${k.c}">
     <div class="row"><div class="info">${t.s?`<span class="t">${tm(t)}</span>`:""}<span class="k">${k.name}</span><span class="s">${esc(t.t || k.name)}</span></div>
-    <div class="checks"><button data-check="${key}" data-st="done" data-on="${c.st==="done"?"done":""}" ${due?"":"disabled"}>✓ Hecha</button><button data-check="${key}" data-st="no" data-on="${c.st==="no"?"no":""}" ${due?"":"disabled"}>✗ No</button></div></div>
+    <div class="checks"><button data-check="${key}" data-st="done" data-on="${c.st==="done"?"done":""}" ${due||ahead?"":"disabled"}>✓ Hecha</button><button data-check="${key}" data-st="no" data-on="${c.st==="no"?"no":""}" ${due?"":"disabled"}>✗ No</button></div></div>
     ${c.st==="no" ? `<div class="extra"><input type="text" data-why="${key}" value="${esc(c.why||"")}" maxlength="120" placeholder="¿Qué ha pasado? (opcional)" aria-label="Motivo"></div>` : ""}
-    ${c.st==="done" && SCORED.has(k.id) ? `<div class="extra"><label style="font-size:13px;color:var(--muted)">Nota</label><input class="score" type="text" autocomplete="off" data-score="${key}" value="${esc(c.score ?? "")}" placeholder="−120 a 120" aria-label="Nota (de −120 a 120)"></div>` : ""}
-    ${!due ? `<span class="x" style="font-size:12px;color:var(--muted)">Podrás marcarla ese día</span>` : ""}
+    ${c.st==="done" && due && SCORED.has(k.id) ?`<div class="extra"><label style="font-size:13px;color:var(--muted)">Nota</label><input class="score" type="text" autocomplete="off" data-score="${key}" value="${esc(c.score ?? "")}" placeholder="−120 a 120" aria-label="Nota (de −120 a 120)"></div>` : ""}
+    ${!due ? `<span class="x" style="font-size:12px;color:var(--muted)">${!ahead ? "Podrás marcarla más adelante" : c.st==="done" ? "Marcada por adelantado. Pulsa otra vez para quitarla" : "Si ya la has hecho, puedes marcarla como hecha"}</span>` : ""}
   </div>`;
 }
 function weekNav(maxAhead) {
@@ -458,7 +461,8 @@ function adminStudentCard(stu) {
   if (open) {
     h += `<div class="tlist">` + (st.tasks.length ? st.tasks.map(t => {
       const c = st.checks[t.id] || {}; const due = isDue(off,t.d); const k = kindOf(t);
-      const stTxt = c.st==="done" ? `✓ Hecha${c.score!=null&&c.score!==""?` · ${esc(c.score)}`:""}` : c.st==="no" ? "✗ No" : due ? "Sin marcar" : "Pendiente";
+      const early = c.st==="done" && c.at && ymd(new Date(c.at)) < ymd(dateOf(off,t.d));
+      const stTxt = c.st==="done" ? `✓ Hecha${early?" (marcada antes)":""}${c.score!=null&&c.score!==""?` · ${esc(c.score)}`:""}` :c.st==="no" ? "✗ No" : due ? "Sin marcar" : "Pendiente";
       return `<div class="trow" style="--k:${k.c}"><span class="st ${stOk(c.st)||"pend"}">${DAYS[t.d]}${t.s?" "+esc(t.s):""}</span>
         <span>${esc(t.t||k.name)} <small>· ${k.name}${t.src==="own"?" · solo para este alumno":""}${c.why?` · «${esc(c.why)}»`:""}</small></span>
         <span style="display:flex;gap:6px;align-items:center"><span class="st ${stOk(c.st)||"pend"}">${stTxt}</span></span></div>`;
@@ -628,7 +632,11 @@ document.addEventListener("click", async e => {
   if (b.dataset.dadd) { openDlg({mode:"day", key:b.dataset.dadd}); return; }
   if (b.dataset.dsess) { const [key, sid] = b.dataset.dsess.split("|"); openDlg({mode:"day", key, sessId:sid}); return; }
   if (b.dataset.dayopt) { openDayDlg(b.dataset.dayopt); return; }
-  if (b.dataset.check) { const cur = stats(S.students[b.dataset.check.split("|")[0]] || S.me, Number(b.dataset.check.split("|")[1])).checks[b.dataset.check.split("|")[2]] || {};
+  if (b.dataset.check) { const [csid, coff, ctid] = b.dataset.check.split("|"); const cstu = S.students[csid] || S.me; const cst = stats(cstu, Number(coff));
+    const ct = cst.tasks.find(t => t.id === ctid);
+    // Future days: only «Hecha», and only within the allowed weeks ahead.
+    if (ct && !isDue(Number(coff), ct.d) && (b.dataset.st !== "done" || !canMarkAhead(Number(coff)))) return;
+    const cur = cst.checks[ctid] || {};
     await setCheck(b.dataset.check, {st: cur.st === b.dataset.st ? null : b.dataset.st}); return; }
   if (b.dataset.open) { ui.open = ui.open === b.dataset.open ? null : b.dataset.open; ui.confirmDel = null; render(true); return; }
   if (b.dataset.mkinv) { await makeInvite({role:"student", studentId:b.dataset.mkinv}); return; }
