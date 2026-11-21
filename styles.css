@@ -125,6 +125,14 @@ td.num{font-family:var(--f-mono);font-size:13px}
 .spark{display:flex;align-items:flex-end;gap:3px;height:26px}
 .spark i{width:9px;background:var(--line);border-radius:2px 2px 0 0;display:block}
 .spark i.cur{background:var(--ink)}
+/* Student history: name button in the report, weekly bar chart. */
+.linkbtn{border:0;background:none;padding:0;font-weight:700;text-align:left;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.linkbtn:hover{text-decoration-color:currentColor}
+.hchart{display:flex;align-items:flex-end;gap:4px;overflow-x:auto;padding-bottom:4px}
+.hbar{flex:0 0 34px;display:flex;flex-direction:column;align-items:center;gap:4px;border:0;background:none;padding:4px 0;border-radius:6px}
+.hbar:hover,.hbar.on{background:var(--soft)}
+.hcol{display:flex;align-items:flex-end;width:16px;height:120px;border-bottom:1px solid var(--line)}
+.hcol i{display:block;width:100%;background:var(--ink);border-radius:4px 4px 0 0}.hv,.hl{font-family:var(--f-mono);font-size:11px;color:var(--muted);line-height:1}
 .teamtag{display:inline-flex;align-items:center;gap:6px;font-size:13px}
 .teamtag::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c)}
 .risk{color:var(--bad);font-weight:700}

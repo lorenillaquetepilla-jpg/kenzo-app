@@ -128,8 +128,8 @@ const tm = s => esc(s.s ? (s.e ? `${s.s}–${s.e}` : s.s) : "");
 function dayHours(sessions) { const h=[0,0,0,0,0,0,0]; for (const s of sessions) h[s.d]+=dur(s); return h; }
 
 /* ---------- state ---------- */
-const S = {user:null, member:undefined, setupExists:null, calendars:{}, students:{}, weeks:{}, extras:{}, notes:{}, members:{}, invites:{}, me:null};
-const ui = {tab:"panda", group:{panda:"ini",koi:"av",bonsai:"av",bambu:"uno"}, tier:{}, weekOff:0, open:null, confirmDel:null, authMode:"in", authMsg:"", authErr:"", month:monthIdxNow(), mode:"month", planFor:null, view:"week"};
+const S = {user:null, member:undefined, setupExists:null, calendars:{}, students:{}, weeks:{}, extras:{}, notes:{}, members:{}, invites:{}, me:null, hist:{weeks:{}, notes:{}, ready:false}};
+const ui = {tab:"panda", group:{panda:"ini",koi:"av",bonsai:"av",bambu:"uno"}, tier:{}, weekOff:0, open:null, confirmDel:null, authMode:"in", authMsg:"", authErr:"", month:monthIdxNow(), mode:"month", planFor:null, view:"week", histFor:null, histOpen:null};
 try { const s=JSON.parse(localStorage.getItem("kenzo-ui")||"{}"); if (s.tab) ui.tab=s.tab; if (s.group) Object.assign(ui.group,s.group); if (s.tier) ui.tier=s.tier; } catch(e) {}
 const saveUi = () => { try { localStorage.setItem("kenzo-ui",JSON.stringify({tab:ui.tab,group:ui.group,tier:ui.tier})); } catch(e) {} };
 
@@ -152,7 +152,7 @@ async function write(fn) { try { await fn(); } catch (e) { console.warn(e); toas
 /* ---------- auth flow ---------- */
 let memberUnsub = null;
 be.onAuth(async u => {
-  unsubAll(); if (memberUnsub) { memberUnsub(); memberUnsub = null; }
+  unsubAll(); closeHist(); if (memberUnsub) { memberUnsub(); memberUnsub = null; }
   retries = 0; clearTimeout(retryTimer); retryTimer = null;
   Object.assign(S, {user:u, member:undefined, calendars:{}, students:{}, weeks:{}, extras:{}, notes:{}, members:{}, invites:{}, me:null});
   render(true);
@@ -162,7 +162,7 @@ be.onAuth(async u => {
     S.member = m;
     if (!m) { unsubAll(); try { S.setupExists = !!(await be.get("config/setup")); } catch(e) { S.setupExists = true; } render(true); if (ui.pendingCode) { const c=ui.pendingCode; ui.pendingCode=null; join(c); } return; }
     const changed = m.role !== prevRole || m.studentId !== prevSid;
-    if (changed) { unsubAll(); m.role === "admin" ? subscribeAdmin() : subscribeStudent(m.studentId); }
+    if (changed) { unsubAll(); closeHist(); m.role === "admin" ? subscribeAdmin() : subscribeStudent(m.studentId); }
     render(changed);
   }, onErr);
 });
@@ -214,10 +214,11 @@ function tasksFor(stu, off) {
     for (const s of stuDay(stu, key, d)) out.push({...s, d, src: own ? "own" : "cal"}); }
   return out.sort((a,b) => a.d-b.d || tkey(a)-tkey(b));
 }
-function stats(stu, off) {
+// W: where the ticks come from. The admin history passes the student's full record; everything else uses S.weeks.
+function stats(stu, off, W = S.weeks) {
   const wk = weekKey(off);
   const tasks = tasksFor(stu, off);
-  const checks = S.weeks[`${stu.id}__${wk}`]?.checks || {};
+  const checks = W[`${stu.id}__${wk}`]?.checks || {};
   let due=0, done=0, no=0, unmarked=0, lastAt=null;
   const since = stu.createdAt ? ymd(new Date(stu.createdAt)) : null;
   const byKind = {}; const scores = [];
@@ -231,9 +232,9 @@ function stats(stu, off) {
   }
   return {tasks, checks, due, done, no, unmarked, lastAt, byKind, scores, pct: due ? Math.round(done/due*100) : null};
 }
-function lastActivity(stu) {
+function lastActivity(stu, W = S.weeks) {
   let last = null;
-  for (const [k,v] of Object.entries(S.weeks)) if (k.startsWith(stu.id+"__")) for (const c of Object.values(v.checks||{})) if (c?.at && c.by !== "admin" && (!last || c.at > last)) last = c.at;
+  for (const [k,v] of Object.entries(W)) if (k.startsWith(stu.id+"__")) for (const c of Object.values(v.checks||{})) if (c?.at && c.by !== "admin" && (!last || c.at > last)) last = c.at;
   return last;
 }
 const pctClass = p => p==null ? "" : p>=80 ? "ok" : p>=60 ? "warn" : "bad";
@@ -260,7 +261,7 @@ function render(force) {
   if (!S.user) html += authHtml();
   else if (S.member === undefined) html += `<p class="empty">Cargando…</p>`;
   else if (!S.member) html += joinHtml();
-  else if (role === "admin") html += ui.tab==="report" ? reportHtml() : ui.tab==="team" ? teamHtml() : sectionHtml();
+  else if (role === "admin") html += ui.histFor ? historyHtml() : ui.tab==="report" ? reportHtml() : ui.tab==="team" ? teamHtml() : sectionHtml();
   else html += studentHtml();
   $("#main").innerHTML = html;
 }
@@ -459,15 +460,8 @@ function adminStudentCard(stu) {
     <span style="font-size:12px;color:var(--muted)">${st.done} hechas · ${st.no} no · ${st.unmarked} sin marcar</span></div>
     <div class="codebox">${linked ? `<span class="linked">✓ Tiene acceso a la app</span>` : code ? `Código de acceso: <code>${code}</code><button class="btn" data-copyinv="${code}" data-name="${esc(stu.name)}">Copiar mensaje para el alumno</button>` : `<button class="btn" data-mkinv="${stu.id}">Crear código de acceso</button>`}</div>`;
   if (open) {
-    h += `<div class="tlist">` + (st.tasks.length ? st.tasks.map(t => {
-      const c = st.checks[t.id] || {}; const due = isDue(off,t.d); const k = kindOf(t);
-      const early = c.st==="done" && c.at && ymd(new Date(c.at)) < ymd(dateOf(off,t.d));
-      const stTxt = c.st==="done" ? `✓ Hecha${early?" (marcada antes)":""}${c.score!=null&&c.score!==""?` · ${esc(c.score)}`:""}` :c.st==="no" ? "✗ No" : due ? "Sin marcar" : "Pendiente";
-      return `<div class="trow" style="--k:${k.c}"><span class="st ${stOk(c.st)||"pend"}">${DAYS[t.d]}${t.s?" "+esc(t.s):""}</span>
-        <span>${esc(t.t||k.name)} <small>· ${k.name}${t.src==="own"?" · solo para este alumno":""}${c.why?` · «${esc(c.why)}»`:""}</small></span>
-        <span style="display:flex;gap:6px;align-items:center"><span class="st ${stOk(c.st)||"pend"}">${stTxt}</span></span></div>`;
-    }).join("") : `<div class="empty">No hay tareas esta semana.</div>`) + `</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-planfor="${stu.id}">Planificar el año de ${esc(stu.name.split(" ")[0])}</button></div>
+    h += adminTaskRows(st, off) + `
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-planfor="${stu.id}">Planificar el año de ${esc(stu.name.split(" ")[0])}</button><button class="btn" data-hist="${stu.id}">Ver historial completo</button></div>
       <textarea data-note="${stu.id}" placeholder="Nota privada de la semana (el alumno no la ve)">${esc(note)}</textarea>`;
     const opts = allCalIds().map(c=>`<option value="${c}" ${c===stu.calId?"selected":""}>${esc(calLabel(c).text)}</option>`).join("");
     h += `<div class="edit"><input type="text" id="en-${stu.id}" value="${esc(stu.name)}" aria-label="Nombre"><select id="ec-${stu.id}" aria-label="Calendario">${opts}</select>
@@ -475,6 +469,94 @@ function adminStudentCard(stu) {
       ${ui.confirmDel===stu.id?`<button class="btn danger" data-delstu="${stu.id}">Sí, eliminar alumno</button>`:`<button class="btn danger" data-askdel="${stu.id}">Eliminar</button>`}</div>`;
   }
   return h + `</div>`;
+}
+function adminTaskRows(st, off) {
+  return `<div class="tlist">` + (st.tasks.length ? st.tasks.map(t => {
+      const c = st.checks[t.id] || {}; const due = isDue(off,t.d); const k = kindOf(t);
+      const early = c.st==="done" && c.at && ymd(new Date(c.at)) < ymd(dateOf(off,t.d));
+      const stTxt = c.st==="done" ? `✓ Hecha${early?" (marcada antes)":""}${c.score!=null&&c.score!==""?` · ${esc(c.score)}`:""}` :c.st==="no" ? "✗ No" : due ? "Sin marcar" : "Pendiente";
+      return `<div class="trow" style="--k:${k.c}"><span class="st ${stOk(c.st)||"pend"}">${DAYS[t.d]}${t.s?" "+esc(t.s):""}</span>
+        <span>${esc(t.t||k.name)} <small>· ${k.name}${t.src==="own"?" · solo para este alumno":""}${c.why?` · «${esc(c.why)}»`:""}</small></span>
+        <span style="display:flex;gap:6px;align-items:center"><span class="st ${stOk(c.st)||"pend"}">${stTxt}</span></span></div>`;
+    }).join("") : `<div class="empty">No hay tareas esta semana.</div>`) + `</div>`;
+}
+
+/* ---- admin: student history (read only) ---- */
+// Loaded only while Paula has a student's history open: that student's weeks and notes for the whole course.
+const COURSE_START = new Date(2026, 10, 1, 12);
+const HIST_MAX_WEEKS = 60;
+let histSubs = [];
+function closeHist() {
+  histSubs.forEach(u => { try { u(); } catch(e) {} }); histSubs = [];
+  ui.histFor = null; ui.histOpen = null; S.hist = {weeks:{}, notes:{}, ready:false};
+}
+function openHist(sid) {
+  closeHist(); ui.histFor = sid;
+  const err = e => { console.warn(e); S.hist.failed = true; render(); };
+  histSubs.push(be.watchQuery("weeks", [["studentId","==",sid]], o => { S.hist.weeks = o; S.hist.ready = true; render(); }, err));
+  histSubs.push(be.watchQuery("notes", [["studentId","==",sid]], o => { S.hist.notes = o; render(); }, err));
+}
+function histFrom(stu) {
+  const c = stu.createdAt ? new Date(stu.createdAt) : COURSE_START;
+  return Math.max(-HIST_MAX_WEEKS, Math.min(0, offFor(c > COURSE_START ? c : COURSE_START)));
+}
+function histData(stu) {
+  const W = S.hist.weeks; const from = histFrom(stu);
+  const weeks = []; const tot = {due:0, done:0, no:0, unmarked:0, byKind:{}}; const scores = [];
+  for (let o=from; o<=0; o++) {
+    const st = stats(stu, o, W);
+    weeks.push({off:o, st, note:S.hist.notes[`${stu.id}__${weekKey(o)}`]?.note || ""});
+    tot.due += st.due; tot.done += st.done; tot.no += st.no; tot.unmarked += st.unmarked;
+    for (const [k,v] of Object.entries(st.byKind)) { tot.byKind[k] ??= {due:0,done:0}; tot.byKind[k].due += v.due; tot.byKind[k].done += v.done; }
+    for (const s of st.scores) scores.push({...s, date:dateOf(o, s.t.d)});
+  }
+  tot.pct = tot.due ? Math.round(tot.done/tot.due*100) : null;
+  return {weeks, tot, scores, last:lastActivity(stu, W)};
+}
+const shortDate = d => d.toLocaleDateString("es-ES",{day:"numeric",month:"short"});
+function historyHtml() {
+  const stu = S.students[ui.histFor];
+  const back = `<button class="btn" data-histclose="1">‹ Volver</button>`;
+  if (!stu) return `<div class="sechead"><div><h2 style="color:var(--ink)">Historial</h2></div>${back}</div><div class="empty">Este alumno ya no existe.</div>`;
+  const lab = calLabel(stu.calId);
+  let h = `<div class="sechead"><div><h2 style="color:var(--ink)">${esc(stu.name)}</h2><div class="sub">Historial del curso · ${esc(lab.text)}${lab.S?.single?"":" al día"}</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${back}${S.hist.ready?`<button class="btn" id="histCsv">Descargar CSV</button>`:""}</div></div>`;
+  if (S.hist.failed) return h + `<div class="empty">No se pudo cargar el historial. Revisa la conexión y vuelve a intentarlo. <button class="btn" data-hist="${esc(stu.id)}">Reintentar</button></div>`;
+  if (!S.hist.ready) return h + `<p class="empty">Cargando historial…</p>`;
+  const {weeks, tot, scores, last} = histData(stu);
+  const nums = scores.map(s => s.score).filter(n => !isNaN(n));
+  const avgScore = nums.length ? Math.round(nums.reduce((a,b)=>a+b,0)/nums.length*10)/10 : null;
+  h += `<div class="tiles"><div class="tile"><b>${tot.pct==null?"—":tot.pct+" %"}</b><span>tareas hechas en todo el curso</span></div>
+    <div class="tile"><b>${tot.done}<small style="font-size:18px;color:var(--muted)"> / ${tot.due}</small></b><span>hechas de las que tocaban</span></div>
+    <div class="tile"><b>${tot.no}</b><span>marcadas como «No» · ${tot.unmarked} sin marcar</span></div>
+    <div class="tile"><b>${avgScore==null?"—":avgScore.toLocaleString("es-ES")}</b><span>nota media (${nums.length} ${nums.length===1?"nota":"notas"})</span></div></div>`;
+  // Weekly progress: one bar per week, oldest on the left. Click a bar to open that week below.
+  h += `<section class="panel"><div class="phead"><h3>Progreso semana a semana</h3><span style="font-size:13px;color:var(--muted)">Marcó por última vez: ${ago(last)}</span></div>
+    <div class="hchart" role="group" aria-label="Porcentaje de tareas hechas por semana">${weeks.map(w => { const p = w.st.pct;
+      return `<button class="hbar ${ui.histOpen===w.off?"on":""}" aria-pressed="${ui.histOpen===w.off}" data-histwk="${w.off}" title="${esc(weekLabel(w.off))}: ${p==null?"sin tareas":`${p} % (${w.st.done}/${w.st.due})`}" aria-label="${esc(weekLabel(w.off))}: ${p==null?"sin tareas":p+" %"}">
+        <span class="hv">${p==null?"—":p}</span><span class="hcol"><i style="height:${p==null?0:Math.max(2,p)}%"></i></span><span class="hl">${weekKey(w.off).split("W")[1]}</span></button>`; }).join("")}</div>
+    <p style="margin:8px 0 0;font-size:12px;color:var(--muted)">% de tareas hechas cada semana. Debajo, el número de semana. Pulsa una barra para ver sus tareas.</p>
+    ${Object.keys(tot.byKind).length ? `<div style="margin-top:14px"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">Por tipo de tarea, todo el curso</div>${kchips(tot.byKind)}</div>` : ""}</section>`;
+  if (scores.length) {
+    h += `<section class="panel"><div class="phead"><h3>Notas de tests y simulacros</h3></div><div class="tbl"><table><thead><tr><th>Fecha</th><th>Tarea</th><th>Tipo</th><th class="num">Nota</th></tr></thead><tbody>`;
+    h += scores.slice().reverse().map(s => `<tr><td>${esc(shortDate(s.date))}</td><td>${esc(s.t.t||kindOf(s.t).name)}</td><td>${esc(kindOf(s.t).name)}</td><td class="num">${esc(s.score)}</td></tr>`).join("");
+    h += `</tbody></table></div></section>`;
+  }
+  h += `<section class="panel"><div class="phead"><h3>Semana a semana</h3></div><div class="tbl"><table><thead><tr><th>Semana</th><th>Hechas</th><th>No</th><th>Sin marcar</th><th>Nota privada</th><th></th></tr></thead><tbody>`;
+  h += weeks.slice().reverse().map(w => { const st = w.st; const open = ui.histOpen === w.off;
+    return `<tr><td style="white-space:nowrap">${esc(weekLabel(w.off))}${w.off===0?` <span class="chip">Esta</span>`:""}</td>
+      <td class="num"><span class="pct ${pctClass(st.pct)}">${st.pct==null?"—":st.pct+" %"}</span><br><small style="color:var(--muted)">${st.done}/${st.due}</small></td>
+      <td class="num">${st.no}</td><td class="num">${st.unmarked}</td>
+      <td style="max-width:240px;color:var(--muted);font-size:13px">${esc(w.note)}</td>
+      <td><button class="ghost" data-histwk="${w.off}">${open?"Cerrar":"Ver tareas"}</button></td></tr>
+      ${open ? `<tr><td colspan="6">${adminTaskRows(st, w.off)}</td></tr>` : ""}`; }).join("");
+  return h + `</tbody></table></div></section>`;
+}
+function historyCsv(stu) {
+  const q = v => `"${String(v ?? "").replace(/"/g,'""')}"`;
+  const {weeks} = histData(stu);
+  const head = ["Alumno","Semana","Desde","% hechas","Hechas","Tocaban","No hechas","Sin marcar","Notas","Nota privada"];
+  return [head.map(q).join(";"), ...weeks.slice().reverse().map(w => [stu.name, weekKey(w.off), ymd(mondayFor(w.off)), w.st.pct??"", w.st.done, w.st.due, w.st.no, w.st.unmarked, w.st.scores.map(s=>s.score).join(" | "), w.note].map(q).join(";"))].join("\n");
 }
 
 /* ---- admin: team ---- */
@@ -557,9 +639,9 @@ function reportHtml() {
     <div class="tiles"><div class="tile"><b>${rows.length}</b><span>alumnos</span></div><div class="tile"><b>${avg==null?"—":avg+" %"}</b><span>tareas hechas esta semana (media)</span></div>
     <div class="tile"><b style="color:${risk?"var(--bad)":"inherit"}">${risk}</b><span>por debajo del 60 %</span></div><div class="tile"><b style="color:${quiet?"var(--warn)":"inherit"}">${quiet}</b><span>llevan 3 días o más sin marcar</span></div></div>`;
   if (!rows.length) return h + `<div class="empty">Cuando añadas alumnos y empiecen a marcar sus tareas, aquí verás cómo van.</div>`;
-  h += `<section class="panel"><div class="tbl"><table><thead><tr><th>Alumno</th><th>Equipo · plan</th><th>Esta semana</th><th>Por tipo (4 sem.)</th><th>Últimas 4 sem.</th><th>Última nota</th><th>Marcó por última vez</th><th>Nota privada</th></tr></thead><tbody>`;
+  h += `<p style="margin:0 0 10px;font-size:13px;color:var(--muted)">Pulsa el nombre de un alumno para ver su historial de todo el curso.</p><section class="panel"><div class="tbl"><table><thead><tr><th>Alumno</th><th>Equipo · plan</th><th>Esta semana</th><th>Por tipo (4 sem.)</th><th>Últimas 4 sem.</th><th>Última nota</th><th>Marcó por última vez</th><th>Nota privada</th></tr></thead><tbody>`;
   h += rows.map(r => { const c = r.cur; const stale = r.access.linked && (!r.last || (Date.now()-new Date(r.last))/864e5 >= 3);
-    return `<tr><td><b>${esc(r.stu.name)}</b>${r.access.linked?"":`<br><small style="color:var(--muted)">aún no ha entrado</small>`}</td>
+    return `<tr><td><button class="linkbtn" data-hist="${r.stu.id}" title="Ver el historial de ${esc(r.stu.name)}">${esc(r.stu.name)}</button>${r.access.linked?"":`<br><small style="color:var(--muted)">aún no ha entrado</small>`}</td>
     <td><span class="teamtag" style="--c:${SEC_COLOR[r.lab.sec]}">${esc(r.lab.text)}</span></td>
     <td class="num"><span class="pct ${pctClass(c.pct)}">${c.pct==null?"—":c.pct+" %"}</span><br><small style="color:var(--muted)">${c.done}/${c.due} hechas${c.unmarked?` · ${c.unmarked} sin marcar`:""}</small></td>
     <td>${kchips(r.byKind4)}</td>
@@ -612,7 +694,12 @@ document.addEventListener("click", async e => {
   if (b.id === "forgot") { const em = $("#aEmail").value.trim(); if (!em) { ui.authErr = "Escribe tu email y vuelve a pulsar."; render(true); return; }
     try { await be.reset(em); ui.authErr=""; ui.authMsg = "Te hemos enviado un email para cambiar la contraseña."; } catch(err) { ui.authErr = errText(err); } render(true); return; }
   if (b.id === "installBtn" && ui.installEvt) { ui.installEvt.prompt(); ui.installEvt = null; ui.canInstall = false; render(); return; }
-  if (b.dataset.tab) { ui.tab = b.dataset.tab; ui.open = null; ui.planFor = null; ui.mode = "month"; saveUi(); render(true); window.scrollTo({top:0}); return; }
+  if (b.dataset.hist) { openHist(b.dataset.hist); render(true); window.scrollTo({top:0}); return; }
+  if (b.dataset.histclose) { closeHist(); render(true); window.scrollTo({top:0}); return; }
+  if (b.dataset.histwk) { const o = Number(b.dataset.histwk); ui.histOpen = ui.histOpen === o ? null : o; render(true); return; }
+  if (b.id === "histCsv") { const hs = S.students[ui.histFor]; if (!hs) return; const blob = new Blob(["﻿"+historyCsv(hs)], {type:"text/csv;charset=utf-8"}); const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `historial-${hs.name.replace(/[^\p{L}\p{N}]+/gu,"-")}.csv`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000); return; }
+  if (b.dataset.tab) { closeHist(); ui.tab = b.dataset.tab; ui.open = null; ui.planFor = null; ui.mode = "month"; saveUi(); render(true); window.scrollTo({top:0}); return; }
   if (b.dataset.group) { ui.group[Sx.id] = b.dataset.group; ui.open = null; ui.planFor = null; saveUi(); render(true); return; }
   if (b.dataset.tier) { ui.tier[`${Sx.id}-${ui.group[Sx.id]}`] = b.dataset.tier; ui.open = null; ui.planFor = null; saveUi(); render(true); return; }
   if (b.dataset.wk) { ui.weekOff = Math.max(-HISTORY_WEEKS, Math.min(Math.max(1,courseEndOff()), ui.weekOff + Number(b.dataset.wk))); render(true); return; }
