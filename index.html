@@ -52,6 +52,8 @@
   <button type="button" class="btn" id="ddFree">Dejar el día libre</button>
   <button type="button" class="btn" id="ddReset">Volver a la semana tipo</button>
   <div class="ddrep"><label>Repetir esta semana entera hasta la semana del<select id="ddUntil"></select></label><button type="button" class="btn" id="ddRepeat">Repetir</button></div>
+  <div class="ddrep"><label>Copiar para pegar en otro calendario: desde esta semana hasta la semana del<select id="ddCopyUntil"></select></label><button type="button" class="btn" id="ddCopy">Copiar</button></div>
+  <div class="ddrep" id="ddPasteBox" hidden><p id="ddPasteTxt" style="margin:0;font-size:13px"></p><button type="button" class="btn primary" id="ddPaste">Pegar aquí</button><button type="button" class="btn" id="ddUndo" hidden>Deshacer el último pegado</button></div>
   <div class="dlgbtns"><button type="button" class="btn" id="ddClose">Cerrar</button></div>
 </div></dialog>
 <div class="toast" id="toast" hidden></div>

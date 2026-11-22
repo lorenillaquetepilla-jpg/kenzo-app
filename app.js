@@ -152,7 +152,7 @@ async function write(fn) { try { await fn(); } catch (e) { console.warn(e); toas
 /* ---------- auth flow ---------- */
 let memberUnsub = null;
 be.onAuth(async u => {
-  unsubAll(); closeHist(); if (memberUnsub) { memberUnsub(); memberUnsub = null; }
+  unsubAll(); closeHist(); ui.clip = ui.lastPaste = null; if (memberUnsub) { memberUnsub(); memberUnsub = null; }
   retries = 0; clearTimeout(retryTimer); retryTimer = null;
   Object.assign(S, {user:u, member:undefined, calendars:{}, students:{}, weeks:{}, extras:{}, notes:{}, members:{}, invites:{}, me:null});
   render(true);
@@ -458,10 +458,12 @@ function adminStudentCard(stu) {
     <button class="ghost" data-open="${stu.id}">${open?"Cerrar":"Ver tareas"}</button></span></div>
     <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">${kchips(st.byKind)}
     <span style="font-size:12px;color:var(--muted)">${st.done} hechas · ${st.no} no · ${st.unmarked} sin marcar</span></div>
+    ${(() => { const t = ymd(new Date()); const n = Object.entries(stu.days || {}).filter(([k,v]) => v != null && k > t).length;
+      return n ? `<div style="font-size:12px;color:var(--warn)">Tiene ${n} ${n===1?"día":"días"} con plan propio a partir de mañana: esos días no siguen el calendario del grupo.</div>` : ""; })()}
     <div class="codebox">${linked ? `<span class="linked">✓ Tiene acceso a la app</span>` : code ? `Código de acceso: <code>${code}</code><button class="btn" data-copyinv="${code}" data-name="${esc(stu.name)}">Copiar mensaje para el alumno</button>` : `<button class="btn" data-mkinv="${stu.id}">Crear código de acceso</button>`}</div>`;
   if (open) {
     h += adminTaskRows(st, off) + `
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-planfor="${stu.id}">Planificar el año de ${esc(stu.name.split(" ")[0])}</button><button class="btn" data-hist="${stu.id}">Ver historial completo</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-hist="${stu.id}">Ver historial completo</button></div>
       <textarea data-note="${stu.id}" placeholder="Nota privada de la semana (el alumno no la ve)">${esc(note)}</textarea>`;
     const opts = allCalIds().map(c=>`<option value="${c}" ${c===stu.calId?"selected":""}>${esc(calLabel(c).text)}</option>`).join("");
     h += `<div class="edit"><input type="text" id="en-${stu.id}" value="${esc(stu.name)}" aria-label="Nombre"><select id="ec-${stu.id}" aria-label="Calendario">${opts}</select>
@@ -849,8 +851,76 @@ function openDayDlg(key) {
   $("#ddUntil").innerHTML = opts.length ? opts.join("") : `<option value="">No quedan semanas</option>`;
   if (opts.length) $("#ddUntil").value = String(Math.min(end, off+4));
   $("#ddRepeat").disabled = !opts.length;
+  // Copy: from this week up to a chosen week. Paste: the copied block, starting on this week.
+  const copyOpts = []; for (let o = off; o <= Math.max(off, end); o++) { const mo = mondayFor(o); copyOpts.push(`<option value="${o}">${o===off?"Solo esta semana":mo.toLocaleDateString("es-ES",{day:"numeric", month:"short", year:"numeric"})}</option>`); }
+  $("#ddCopyUntil").innerHTML = copyOpts.join("");
+  const clip = ui.clip;
+  $("#ddPaste").hidden = !clip;
+  $("#ddPasteTxt").textContent = clip ? `Tienes copiado: ${clip.label}. Se pegará a partir de la semana del ${mondayFor(off).toLocaleDateString("es-ES",{day:"numeric", month:"long"})} en ${T.who ? `el plan de ${T.who}` : calLabel(currentCalId()).text}.` : "";
+  // Undo only from the same calendar (or student plan) it was pasted into, and saying which one.
+  const canUndo = !!ui.lastPaste && ui.lastPaste.path === T.path;
+  $("#ddPasteBox").hidden = !clip && !canUndo;
+  $("#ddUndo").hidden = !canUndo;
+  if (canUndo) $("#ddUndo").textContent = `Deshacer el pegado en ${ui.lastPaste.label}`;
   dayDlg.showModal();
 }
+// Days a paste or an undo must leave alone in the plan being edited: today or earlier, or a day a student already ticked.
+function blockedDay(k) {
+  if (k <= ymd(new Date())) return "past";
+  const calNow = currentCalId(); const o = offOfKey(k); const cur = dayTarget(k).list;
+  const studs = ui.planFor ? [S.students[ui.planFor]].filter(Boolean) : Object.values(S.students).filter(s => s.calId === calNow);
+  return studs.some(s => (ui.planFor || s.days?.[k] == null) && cur.some(t => S.weeks[`${s.id}__${weekKey(o)}`]?.checks?.[t.id]?.st)) ? "ticked" : null;
+}
+function skipText(n) {
+  const p = (c, one, many) => c ? `${c} ${c===1?one:many}` : "";
+  return [p(n.past,"día pasado","días pasados"), p(n.ticked,"día ya marcado","días ya marcados"), p(n.out,"día fuera del curso","días fuera del curso")].filter(Boolean).join(", ");
+}
+const studentGone = () => { if (ui.planFor && !S.students[ui.planFor]) { toast("Ese alumno ya no existe. Vuelve a abrir su calendario."); return true; } return false; };
+const offOfKey = key => { const [y,m,d] = key.split("-").map(Number); return offFor(new Date(y,m-1,d,12)); };
+const fmtShort = dt => dt.toLocaleDateString("es-ES",{day:"numeric", month:"short"});
+$("#ddCopy").onclick = () => {
+  const off = offOfKey(dayKey); const until = Math.max(off, Number($("#ddCopyUntil").value)); const T = dayTarget(dayKey);
+  const weeks = [];
+  for (let o = off; o <= until; o++) { const w = []; for (let i=0; i<7; i++) w.push(dayTarget(ymd(dateOf(o,i))).list.map(x => ({...x}))); weeks.push(w); }
+  const n = weeks.length; const src = T.who ? `plan de ${T.who}` : calLabel(currentCalId()).text;
+  ui.clip = {weeks, label: n===1 ? `la semana del ${fmtShort(mondayFor(off))} de ${src}` : `${n} semanas (del ${fmtShort(mondayFor(off))} al ${fmtShort(dateOf(until,6))}) de ${src}`};
+  dayDlg.close(); toast(n===1 ? "Semana copiada. Abre «Opciones» en el otro calendario para pegarla." : `${n} semanas copiadas. Abre «Opciones» en el otro calendario para pegarlas.`);
+};
+// Pasting never touches today or earlier, nor a day a student already ticked ahead, so nothing marked stops matching its task.
+$("#ddPaste").onclick = async () => {
+  const clip = ui.clip; if (!clip || studentGone()) return;
+  const off = offOfKey(dayKey); const T = dayTarget(dayKey); const end = courseEndOff();
+  const dest = T.who ? `el plan de ${T.who}` : calLabel(currentCalId()).text;
+  if (!confirm(`¿Pegar ${clip.label} en ${dest}, a partir de la semana del ${fmtShort(mondayFor(off))}?\n\nLos días que ya hayan pasado y los que algún alumno ya haya marcado no se tocan.`)) return;
+  dayDlg.close();
+  const src = T.who ? S.students[ui.planFor]?.days || {} : S.calendars[currentCalId()]?.days || {};
+  const days = {}, prev = {}, n = {past:0, ticked:0, out:0};
+  clip.weeks.forEach((w, j) => { const o = off + j;
+    for (let i=0; i<7; i++) { const k = ymd(dateOf(o,i));
+      if (o > end) { n.out++; continue; }
+      const b = blockedDay(k); if (b) { n[b]++; continue; }
+      days[k] = w[i].map(x => ({...x, d:i, id:uid()})); prev[k] = src[k] ?? null;
+    } });
+  if (!Object.keys(days).length) { toast(`No se ha pegado nada. Sin tocar: ${skipText(n)}.`); return; }
+  try {
+    await be.merge(T.path, {days, updatedAt:new Date().toISOString()});
+    ui.lastPaste = {path:T.path, prev, label:dest};
+    const skip = skipText(n); toast(skip ? `Pegado. Sin tocar: ${skip}.` : "Pegado");
+  } catch (e) { console.warn(e); toast(errText(e)); }
+};
+// Undo puts back only the days it still safely can: not past ones, not ones a student has ticked since.
+$("#ddUndo").onclick = async () => {
+  const L = ui.lastPaste; if (!L || studentGone() || L.path !== dayTarget(dayKey).path) return;
+  if (!confirm(`¿Deshacer el pegado en ${L.label} y dejar esos días como estaban?\n\nLos días que ya hayan pasado y los que algún alumno haya marcado desde entonces no se tocan.`)) return;
+  dayDlg.close();
+  const days = {}, n = {past:0, ticked:0, out:0};
+  for (const [k, v] of Object.entries(L.prev)) { const b = blockedDay(k); if (b) { n[b]++; continue; } days[k] = v; }
+  if (!Object.keys(days).length) { ui.lastPaste = null; toast(`No se ha deshecho nada. Sin tocar: ${skipText(n)}.`); return; }
+  try {
+    await be.merge(L.path, {days, updatedAt:new Date().toISOString()}); ui.lastPaste = null;
+    const skip = skipText(n); toast(skip ? `Pegado deshecho. Sin tocar: ${skip}.` : "Pegado deshecho");
+  } catch (e) { console.warn(e); toast(errText(e)); }
+};
 $("#ddClose").onclick = () => dayDlg.close();
 $("#ddAdd").onclick = () => { dayDlg.close(); openDlg({mode:"day", key:dayKey}); };
 $("#ddFree").onclick = async () => { dayDlg.close(); const T = dayTarget(dayKey); await saveDays(T.path, {[dayKey]: []}); toast("Día libre"); };
